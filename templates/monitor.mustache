@@ -1,0 +1,53 @@
+{{!
+    This file is part of the quiz_livemonitor plugin for Moodle.
+
+    Moodle is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Moodle is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
+}}
+{{!
+    @template quiz_livemonitor/monitor
+
+    Live monitor wrapper: static controls plus the refreshable body region.
+
+    Context variables required for this template:
+    * cmid int - course module id
+    * generatedatstr string - formatted snapshot time
+    * hasrows bool - whether there are participants
+    * summary object - counters
+    * rows array - participant rows
+
+    Example context (json):
+    {
+        "cmid": 42,
+        "generatedatstr": "12:34:56",
+        "hasrows": true,
+        "summary": {"total": 3, "active": 2, "inprogress": 2, "finished": 1, "overrun": 0, "notstarted": 0},
+        "rows": []
+    }
+}}
+<div class="quiz-livemonitor" data-cmid="{{cmid}}">
+    <div class="quiz-livemonitor-controls d-flex flex-wrap align-items-center mb-2">
+        <p class="quiz-livemonitor-sebnote text-muted small mb-2 mr-3">{{#str}}sebnote, quiz_livemonitor{{/str}}</p>
+        <div class="quiz-livemonitor-buttons ml-auto mb-2">
+            <button type="button" class="btn btn-secondary btn-sm mr-1" data-action="livemonitor-toggle">
+                {{#str}}pause, quiz_livemonitor{{/str}}
+            </button>
+            <button type="button" class="btn btn-primary btn-sm" data-action="livemonitor-refresh">
+                {{#str}}refreshnow, quiz_livemonitor{{/str}}
+            </button>
+        </div>
+    </div>
+    <div class="quiz-livemonitor-region" data-region="livemonitor-body">
+        {{> quiz_livemonitor/monitor_body}}
+    </div>
+</div>

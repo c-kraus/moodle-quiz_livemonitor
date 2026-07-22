@@ -1,0 +1,38 @@
+/* Live monitor quiz report styles. */
+
+.quiz-livemonitor-summary .quiz-livemonitor-tile {
+    min-width: 6.5rem;
+}
+
+.quiz-livemonitor-progress {
+    height: 1rem;
+    margin-bottom: 0.15rem;
+}
+
+/* Small pulsing dot shown next to an actively working participant. */
+.quiz-livemonitor-pulse {
+    display: inline-block;
+    width: 0.6rem;
+    height: 0.6rem;
+    margin-left: 0.35rem;
+    border-radius: 50%;
+    background-color: #1f7a1f;
+    vertical-align: middle;
+    animation: quiz-livemonitor-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes quiz-livemonitor-pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(31, 122, 31, 0.6); }
+    70%  { box-shadow: 0 0 0 0.5rem rgba(31, 122, 31, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(31, 122, 31, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .quiz-livemonitor-pulse {
+        animation: none;
+    }
+}
+
+.quiz-livemonitor-row.status-idle td {
+    opacity: 0.85;
+}

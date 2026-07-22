@@ -1,0 +1,110 @@
+{{!
+    This file is part of the quiz_livemonitor plugin for Moodle.
+
+    Moodle is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    Moodle is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with Moodle.  If not, see <https://www.gnu.org/licenses/>.
+}}
+{{!
+    @template quiz_livemonitor/monitor_body
+
+    The refreshable part of the live monitor: summary tiles plus the participant table.
+    Re-rendered client-side on every poll with the same context as quiz_livemonitor/monitor.
+
+    Example context (json):
+    {
+        "generatedatstr": "12:34:56",
+        "hasrows": true,
+        "summary": {"total": 3, "active": 2, "inprogress": 2, "finished": 1, "overrun": 0, "notstarted": 0},
+        "rows": [
+            {
+                "userid": 5, "fullname": "Erika Musterfrau", "statuskey": "active",
+                "statuslabel": "Aktiv", "statusbadgeclass": "badge badge-success bg-success text-white",
+                "answered": 3, "total": 10, "progresspercent": 30, "progresslabel": "3 / 10",
+                "lastactivitylabel": "vor 8 Sek.", "lastactivityseconds": 8, "elapsedlabel": "4 Min.",
+                "hastimelimit": true, "timeleftlabel": "56 Min.", "timeleftseconds": 3360,
+                "isoverrun": false, "isactive": true
+            }
+        ]
+    }
+}}
+<p class="quiz-livemonitor-updated text-muted small mb-2">
+    {{#str}}lastupdated, quiz_livemonitor{{/str}} {{generatedatstr}}
+</p>
+
+<div class="quiz-livemonitor-summary d-flex flex-wrap mb-3">
+    <div class="quiz-livemonitor-tile border rounded p-2 mr-2 mb-2 text-center">
+        <div class="h4 mb-0">{{summary.active}}</div>
+        <div class="small text-success">{{#str}}summary_active, quiz_livemonitor{{/str}}</div>
+    </div>
+    <div class="quiz-livemonitor-tile border rounded p-2 mr-2 mb-2 text-center">
+        <div class="h4 mb-0">{{summary.inprogress}}</div>
+        <div class="small text-muted">{{#str}}summary_inprogress, quiz_livemonitor{{/str}}</div>
+    </div>
+    <div class="quiz-livemonitor-tile border rounded p-2 mr-2 mb-2 text-center">
+        <div class="h4 mb-0">{{summary.finished}}</div>
+        <div class="small text-primary">{{#str}}summary_finished, quiz_livemonitor{{/str}}</div>
+    </div>
+    <div class="quiz-livemonitor-tile border rounded p-2 mr-2 mb-2 text-center">
+        <div class="h4 mb-0">{{summary.overrun}}</div>
+        <div class="small text-danger">{{#str}}summary_overrun, quiz_livemonitor{{/str}}</div>
+    </div>
+    <div class="quiz-livemonitor-tile border rounded p-2 mr-2 mb-2 text-center">
+        <div class="h4 mb-0">{{summary.notstarted}}</div>
+        <div class="small text-muted">{{#str}}summary_notstarted, quiz_livemonitor{{/str}}</div>
+    </div>
+    <div class="quiz-livemonitor-tile border rounded p-2 mr-2 mb-2 text-center">
+        <div class="h4 mb-0">{{summary.total}}</div>
+        <div class="small text-muted">{{#str}}summary_total, quiz_livemonitor{{/str}}</div>
+    </div>
+</div>
+
+{{#hasrows}}
+<div class="table-responsive">
+    <table class="table table-sm table-hover quiz-livemonitor-table">
+        <thead>
+            <tr>
+                <th scope="col">{{#str}}col_name, quiz_livemonitor{{/str}}</th>
+                <th scope="col">{{#str}}col_status, quiz_livemonitor{{/str}}</th>
+                <th scope="col">{{#str}}col_progress, quiz_livemonitor{{/str}}</th>
+                <th scope="col">{{#str}}col_lastactivity, quiz_livemonitor{{/str}}</th>
+                <th scope="col">{{#str}}col_elapsed, quiz_livemonitor{{/str}}</th>
+                <th scope="col">{{#str}}col_timeleft, quiz_livemonitor{{/str}}</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{#rows}}
+            <tr class="quiz-livemonitor-row status-{{statuskey}}{{#isoverrun}} table-danger{{/isoverrun}}">
+                <td>{{fullname}}</td>
+                <td>
+                    <span class="{{statusbadgeclass}}">{{statuslabel}}</span>
+                    {{#isactive}}<span class="quiz-livemonitor-pulse" title="{{#str}}active, quiz_livemonitor{{/str}}"></span>{{/isactive}}
+                </td>
+                <td style="min-width: 140px;">
+                    <div class="progress quiz-livemonitor-progress" role="progressbar"
+                         aria-valuenow="{{progresspercent}}" aria-valuemin="0" aria-valuemax="100">
+                        <div class="progress-bar" style="width: {{progresspercent}}%;">{{progresspercent}}%</div>
+                    </div>
+                    <small class="text-muted">{{progresslabel}}</small>
+                </td>
+                <td>{{lastactivitylabel}}</td>
+                <td>{{elapsedlabel}}</td>
+                <td>{{#hastimelimit}}{{timeleftlabel}}{{/hastimelimit}}{{^hastimelimit}}&mdash;{{/hastimelimit}}</td>
+            </tr>
+            {{/rows}}
+        </tbody>
+    </table>
+</div>
+{{/hasrows}}
+{{^hasrows}}
+<div class="alert alert-info">{{#str}}noparticipants, quiz_livemonitor{{/str}}</div>
+{{/hasrows}}
