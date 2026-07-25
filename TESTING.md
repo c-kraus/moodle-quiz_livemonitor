@@ -138,7 +138,30 @@ Auto-refresh is deliberately skipped while the tab is in the background
 (`document.hidden`), so verify it in a focused window — a headless or background
 tab will look as though polling is broken.
 
-## 7. Static analysis
+## 7. PHPUnit
+
+```bash
+bin/moodle-docker-compose exec webserver php admin/tool/phpunit/cli/init.php
+bin/moodle-docker-compose exec webserver vendor/bin/phpunit --testdox \
+  mod/quiz/report/livemonitor/tests/local/progress_provider_test.php
+```
+
+22 tests cover `progress_provider`: every status, the answered-question counter
+(including a multi-response question and a blank submission), the summary
+counters, the latest-attempt and preview rules, sorting, the time-limit and
+close-date deadlines, that supervisors are not listed as participants, that the
+snapshot writes nothing, and that its query count does not grow with the cohort.
+
+**Do not size a test cohort by what feels realistic.** Under PHPUnit,
+`get_enrolled_users()` with a capability filter and `$onlyactive = true` is
+pathologically slow — around 54 seconds for 200 participants — because the test
+environment resolves capabilities against a null cache store. The same call takes
+**1.9 ms** in a normal request, and a full 200-participant snapshot takes **4–7 ms
+in 5 queries**. So a slow large-cohort test says something about PHPUnit, not
+about this plugin. `test_query_count_does_not_grow_with_participants` therefore
+compares query *counts* at 3 and 23 participants rather than timings.
+
+## 8. Static analysis
 
 ```bash
 bin/moodle-docker-compose exec webserver sh -c \
@@ -155,7 +178,7 @@ The PHP files are expected to report zero errors. The remaining warnings are the
 AMOS alphabetical ordering of the language string keys, which is deliberate: they
 are grouped by purpose with explanatory comments.
 
-## 8. Rebuilding the AMD module
+## 9. Rebuilding the AMD module
 
 After editing `amd/src/monitor.js`:
 
@@ -164,7 +187,7 @@ bin/moodle-docker-compose exec webserver \
   npx grunt amd --root=mod/quiz/report/livemonitor
 ```
 
-## 9. Tear down
+## 10. Tear down
 
 ```bash
 cd moodle-docker && source ../env.sh
