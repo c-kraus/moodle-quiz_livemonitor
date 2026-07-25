@@ -25,7 +25,11 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component = 'quiz_livemonitor';
-$plugin->version   = 2026072200;
-$plugin->requires  = 2022112800; // Moodle 4.1.0 (minimum tested; primary target 4.4+/5.x).
+$plugin->version   = 2026072500;
+// Moodle 4.2.0. classes/external/get_progress.php extends the core_external\*
+// classes, which do not exist before 4.2: on 4.1 the web service class cannot be
+// loaded, so the auto-refresh fails at run time. Requiring 4.2 makes an install
+// on 4.1 fail immediately instead of during an exam.
+$plugin->requires  = 2023042400;
 $plugin->maturity  = MATURITY_ALPHA;
-$plugin->release   = 'v0.1.0';
+$plugin->release   = 'v0.2.0';

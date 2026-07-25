@@ -1,11 +1,29 @@
 # Testing quiz_livemonitor locally
 
 A verified walkthrough for bringing this plugin up in a throwaway Moodle on your
-own machine. Every command below was run end to end against **Moodle 4.5.12+,
-PHP 8.3, PostgreSQL 16** on macOS with OrbStack providing the Docker engine.
+own machine. Every command below was run end to end against **Moodle 4.5.12+ with
+PHP 8.3**, on **both PostgreSQL 16 and MariaDB 10.11**, on macOS with OrbStack
+providing the Docker engine.
 
 Docker Desktop works identically — `moodle-docker` only needs a Docker engine and
 `docker compose`.
+
+## What has actually been verified
+
+| Axis | Result |
+|------|--------|
+| Moodle 4.5.12+ / PHP 8.3 / PostgreSQL 16 | 40 PHPUnit tests pass; report verified in the browser |
+| Moodle 4.5.12+ / PHP 8.3 / MariaDB 10.11 | 40 PHPUnit tests pass; report verified in the browser with 205 participants |
+| PHP syntax range | `phpcs --standard=PHPCompatibility --runtime-set testVersion 7.4-` reports nothing |
+| Moodle coding style | `phpcs --standard=moodle` reports zero errors |
+| Snapshot cost, 205 participants, MariaDB | 16.6 ms in 5 queries; `count_answered` 1.7 ms; full page 0.23 s |
+| Snapshot cost, 200 participants, PostgreSQL | 4–7 ms in 5 queries |
+
+Not yet verified: **Moodle 5.x**, and any version other than 4.5. The report is
+built on `mod_quiz` internals (`quiz_attempts`, `quiz_slots`, `question_attempts`,
+`question_attempt_steps`) plus the quiz report base class, so a major-version
+change is the axis most likely to need attention. Run the suite on the target
+branch before deploying.
 
 ## 1. Prerequisites
 
@@ -43,15 +61,15 @@ listens there — OrbStack itself binds 8000, which is why this guide uses 8040.
 
 ```bash
 cat > env.sh <<'EOF'
-WS="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
-export MOODLE_DOCKER_WWWROOT="$WS/moodle"
-export MOODLE_DOCKER_DB=pgsql
+LM_WORKSPACE="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+export MOODLE_DOCKER_WWWROOT="$LM_WORKSPACE/moodle"
+export MOODLE_DOCKER_DB="${1:-pgsql}"
 export MOODLE_DOCKER_WEB_PORT=8040
 export MOODLE_DOCKER_PHP_VERSION=8.3
 EOF
 
 cd moodle-docker
-source ../env.sh
+source ../env.sh            # or: source ../env.sh mariadb
 cp config.docker-template.php "$MOODLE_DOCKER_WWWROOT/config.php"
 bin/moodle-docker-compose up -d
 bin/moodle-docker-wait-for-db
@@ -186,7 +204,44 @@ in 5 queries**. So a slow large-cohort test says something about PHPUnit, not
 about this plugin. `test_query_count_does_not_grow_with_participants` therefore
 compares query *counts* at 3 and 23 participants rather than timings.
 
-## 8. Static analysis
+## 8. Running against the other database engine
+
+German university Moodles commonly run MariaDB/MySQL rather than PostgreSQL, and
+the answered-question count uses a correlated subquery over
+`question_attempt_steps` — historically MySQL's weak spot. Switching engines means
+rebuilding the stack, because the database lives in a container volume:
+
+```bash
+bin/moodle-docker-compose down -v
+source ../env.sh mariadb
+cp config.docker-template.php "$MOODLE_DOCKER_WWWROOT/config.php"
+bin/moodle-docker-compose up -d && bin/moodle-docker-wait-for-db
+bin/moodle-docker-compose exec webserver php admin/tool/phpunit/cli/init.php
+bin/moodle-docker-compose exec webserver vendor/bin/phpunit --testsuite quiz_livemonitor_testsuite
+```
+
+On MariaDB 10.11 all 40 tests pass and the correlated subquery costs 1.7 ms for
+164 attempts, so the concern did not materialise. Re-run `init.php` after any
+change to `version.php`, or PHPUnit refuses to start.
+
+## 9. Checking PHP version portability
+
+```bash
+bin/moodle-docker-compose exec webserver sh -c \
+  'mkdir -p /tmp/compat && cd /tmp/compat \
+   && composer config --no-plugins allow-plugins.dealerdirect/phpcodesniffer-composer-installer true \
+   && composer require --no-interaction phpcompatibility/php-compatibility squizlabs/php_codesniffer \
+   && vendor/bin/phpcs --config-set installed_paths /tmp/compat/vendor/phpcompatibility/php-compatibility'
+
+bin/moodle-docker-compose exec webserver \
+  /tmp/compat/vendor/bin/phpcs --standard=PHPCompatibility --runtime-set testVersion 8.1- \
+  --extensions=php --ignore='*/tests/*' mod/quiz/report/livemonitor
+```
+
+Reports nothing down to `testVersion 7.4-`, so the Moodle version is the binding
+constraint on where this plugin can run, not PHP.
+
+## 10. Static analysis
 
 ```bash
 bin/moodle-docker-compose exec webserver sh -c \
@@ -203,7 +258,7 @@ The PHP files are expected to report zero errors. The remaining warnings are the
 AMOS alphabetical ordering of the language string keys, which is deliberate: they
 are grouped by purpose with explanatory comments.
 
-## 9. Rebuilding the AMD module
+## 11. Rebuilding the AMD module
 
 After editing `amd/src/monitor.js`:
 
@@ -212,7 +267,7 @@ bin/moodle-docker-compose exec webserver \
   npx grunt amd --root=mod/quiz/report/livemonitor
 ```
 
-## 10. Tear down
+## 12. Tear down
 
 ```bash
 cd moodle-docker && source ../env.sh

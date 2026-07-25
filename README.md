@@ -24,14 +24,19 @@ Plus summary tiles (active now / in progress / submitted / time overrun / not st
 
 ## Requirements / compatibility
 
-- Primary target: **Moodle 4.4+ and 5.x**.
-- The quiz report base class was namespaced in Moodle 4.2; `report.php` detects and aliases
-  whichever base class exists, so it also runs on **4.1**.
-- One caveat for **Moodle 4.1**: `classes/external/get_progress.php` uses the `core_external\*`
-  namespaced base classes (introduced in 4.2). On 4.1 replace them with the legacy global
-  classes (`external_api`, `external_function_parameters`, `external_single_structure`,
-  `external_multiple_structure`, `external_value`) and remove the `use core_external\...;`
-  lines. Everything else is unchanged.
+- **Requires Moodle 4.2 or later** (`$plugin->requires = 2023042400`). Primary target
+  **4.4+ / 5.x**.
+- Verified end to end on **Moodle 4.5.12+ with PHP 8.3**, against both **PostgreSQL 16** and
+  **MariaDB 10.11**: 40 PHPUnit tests pass on both engines. See [`TESTING.md`](TESTING.md).
+- The PHP itself is portable across **7.4 – 8.4** (`phpcs --standard=PHPCompatibility
+  --runtime-set testVersion 7.4-` reports nothing), so the Moodle version is the binding
+  constraint, not the PHP version.
+- **4.1 is not supported.** The quiz report base class was namespaced in 4.2 and `report.php`
+  aliases whichever exists, but `classes/external/get_progress.php` extends the
+  `core_external\*` classes, which do not exist on 4.1 — the web service class cannot be
+  loaded there, so the auto-refresh fails at run time. `$plugin->requires` therefore blocks
+  installation on 4.1 rather than letting it fail during an exam. Supporting 4.1 would mean
+  rewriting that class against the legacy global `external_*` classes.
 
 ## Installation (local development)
 
