@@ -73,14 +73,34 @@ $password = 'Dev#Local1234';
 $now = time();
 $timelimit = 1800;
 
+// One source of truth for the participants: first name, last name, status key.
+// The cleanup below and the creation loop further down both derive from this, so
+// they cannot drift apart. They did once -- a sixth student was added to the
+// creation loop but not to a hard-coded deletion list, and the next run died on
+// the username unique index, which is exactly the repeatability this script
+// promises.
+$studentspecs = [
+    ['Anna', 'Aktiv', 'active'],
+    ['Bernd', 'Untaetig', 'idle'],
+    ['Clara', 'Abgegeben', 'finished'],
+    ['David', 'Ueberzogen', 'overrun'],
+    ['Eva', 'Nichtda', 'notstarted'],
+    ['Frank', 'Abgegebenungewertet', 'submitted'],
+];
+$usernames = ['dozentin'];
+foreach (array_keys($studentspecs) as $i) {
+    $usernames[] = 'stud' . ($i + 1);
+}
+
 cli_heading('quiz_livemonitor test data');
 
-// Remove a previous run so the script is repeatable.
+// Remove a previous run so the script is repeatable. delete_user() is a soft
+// delete that renames the account, which frees the username for reuse.
 if ($old = $DB->get_record('course', ['shortname' => 'KLAUSUR1'])) {
     delete_course($old->id, false);
     cli_writeln("Deleted previous course {$old->id}");
 }
-foreach (['dozentin', 'stud1', 'stud2', 'stud3', 'stud4', 'stud5'] as $username) {
+foreach ($usernames as $username) {
     if ($olduser = $DB->get_record('user', ['username' => $username, 'deleted' => 0])) {
         delete_user($olduser);
     }
@@ -141,14 +161,6 @@ $teacher = $generator->create_user([
 $generator->enrol_user($teacher->id, $course->id, 'editingteacher');
 
 $students = [];
-$studentspecs = [
-    ['Anna', 'Aktiv', 'active'],
-    ['Bernd', 'Untaetig', 'idle'],
-    ['Clara', 'Abgegeben', 'finished'],
-    ['David', 'Ueberzogen', 'overrun'],
-    ['Eva', 'Nichtda', 'notstarted'],
-    ['Frank', 'Abgegebenungewertet', 'submitted'],
-];
 foreach ($studentspecs as $i => $spec) {
     $user = $generator->create_user([
         'firstname' => $spec[0],
@@ -159,7 +171,7 @@ foreach ($studentspecs as $i => $spec) {
     $generator->enrol_user($user->id, $course->id, 'student');
     $students[$spec[2]] = $user;
 }
-cli_writeln("Users: dozentin, stud1..stud6 -- password {$password}");
+cli_writeln('Users: ' . implode(', ', $usernames) . " -- password {$password}");
 
 /**
  * Start an attempt and answer the first $answercount slots correctly.

@@ -3,3 +3,7 @@
 /vendor/
 *.zip
 *.log
+
+# Kollegen-Anleitung: Quelle, Rendering und Screenshots werden nicht mitverteilt.
+# Das Plugin-Paket soll schlank bleiben; die Anleitung ist ein separates Dokument.
+/anleitung/
