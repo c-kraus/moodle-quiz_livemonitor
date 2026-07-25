@@ -30,8 +30,10 @@ Plus summary tiles (active now / in progress / submitted / time overrun / not st
   against both **PostgreSQL 16** and **MariaDB 10.11**: 41 PHPUnit tests pass on every
   combination, and the report was checked in the browser on each. See
   [`TESTING.md`](TESTING.md).
-- **On Moodle 5.x the plugin belongs under `public/`**, because 5.0 moved the servable code
-  there: `public/mod/quiz/report/livemonitor`. On 4.x it is `mod/quiz/report/livemonitor`.
+- **From Moodle 5.1 the plugin belongs under `public/`**: 5.1 moved the servable code there,
+  so the path is `public/mod/quiz/report/livemonitor`. Up to and including **5.0** it is
+  `mod/quiz/report/livemonitor`, as on 4.x. (`MOODLE_501_STABLE` has no top-level
+  `version.php`, `MOODLE_500_STABLE` has no `public/version.php` — that is where the split is.)
 - Moodle 5.0 added the attempt state **`submitted`** (handed in, automatic grading not yet
   run) between `inprogress` and `finished`. The report treats it as submitted; see
   *Attempt states* below.
@@ -53,8 +55,8 @@ its place in a Moodle codebase is:
 
 | Moodle | Path |
 |--------|------|
-| 4.2 – 4.5 | `mod/quiz/report/livemonitor/` |
-| 5.0 and later | `public/mod/quiz/report/livemonitor/` |
+| 4.2 – 5.0 | `mod/quiz/report/livemonitor/` |
+| 5.1 and later | `public/mod/quiz/report/livemonitor/` |
 
 ### From a ZIP (how a computing centre will usually do it)
 

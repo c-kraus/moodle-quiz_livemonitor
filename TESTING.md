@@ -17,15 +17,18 @@ works identically — `moodle-docker` only needs a Docker engine and
 | Snapshot cost, 205 participants, MariaDB | 16.6 ms in 5 queries; `count_answered` 1.7 ms; full page 0.23 s |
 | Snapshot cost, 200 participants, PostgreSQL | 4–7 ms in 5 queries |
 
-## Two things Moodle 5.0 changed that matter here
+## Two Moodle 5 changes that matter here
 
-**The servable code moved into `public/`.** So the plugin lives at
-`public/mod/quiz/report/livemonitor` on 5.x and `mod/quiz/report/livemonitor` on
-4.x. `$CFG->dirroot` points at `public/`, while `vendor/` and the `admin/cli/`
-tools stay at the repository root — which is why `tests/fixtures/seed_testdata.php`
-looks for the Composer autoloader in both places.
+**Moodle 5.1 moved the servable code into `public/`.** So the plugin lives at
+`public/mod/quiz/report/livemonitor` from 5.1 onwards, and at
+`mod/quiz/report/livemonitor` up to and including 5.0. `$CFG->dirroot` points at
+`public/`, while `vendor/` and the `admin/cli/` tools stay at the repository root —
+which is why `tests/fixtures/seed_testdata.php` looks for the Composer autoloader
+in both places. The dividing line is checkable: `MOODLE_501_STABLE` has no
+top-level `version.php`, `MOODLE_500_STABLE` has no `public/version.php`.
 
-**A new attempt state, `submitted`,** sits between `inprogress` and `finished`:
+**Moodle 5.0 added the attempt state `submitted`,** which sits between
+`inprogress` and `finished`:
 the student has handed in but automatic grading has not run, possibly because it
 was deferred to the `mod_quiz\task\grade_submission` ad-hoc task. The report maps
 it to Submitted. Before that was handled it fell through to Idle, so a supervisor

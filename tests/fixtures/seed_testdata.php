@@ -39,9 +39,9 @@ require(__DIR__ . '/../../../../../../config.php');
 require_once($CFG->libdir . '/clilib.php');
 
 // The question generators pull in the PHPUnit testcase base classes, and the
-// plain CLI bootstrap does not load the Composer autoloader. Moodle 5.0 moved the
-// servable code into public/, so $CFG->dirroot points there while vendor/ stays
-// at the repository root one level up.
+// plain CLI bootstrap does not load the Composer autoloader. Moodle 5.1 moved the
+// servable code into public/, so from then on $CFG->dirroot points there while
+// vendor/ stays at the repository root one level up.
 $autoloadcandidates = [
     $CFG->dirroot . '/vendor/autoload.php',
     dirname($CFG->dirroot) . '/vendor/autoload.php',
