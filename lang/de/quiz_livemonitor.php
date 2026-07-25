@@ -26,6 +26,13 @@ defined('MOODLE_INTERNAL') || die();
 
 $string['pluginname'] = 'Live-Monitor';
 $string['livemonitor:view'] = 'Live-Monitor eines Tests einsehen';
+// Beide Strings sind für jedes Quiz-Report-Subplugin Pflicht, weil der Core seine
+// Bezeichnungen aus dem Report-Namen bildet: quiz_extend_settings_navigation()
+// nutzt get_string($report, ...) für den Eintrag unter "Ergebnisse",
+// mod/quiz/settings.php nutzt get_string($report . 'report', ...) für die
+// Einstellungsseite. Ohne sie bricht die Report-Seite bei aktivem Debugging ab.
+$string['livemonitor'] = 'Live-Monitor';
+$string['livemonitorreport'] = 'Live-Monitor-Report';
 
 // Spaltenüberschriften.
 $string['col_name'] = 'Teilnehmer/in';

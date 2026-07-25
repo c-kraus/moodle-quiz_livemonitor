@@ -43,7 +43,6 @@ if (class_exists('\mod_quiz\local\reports\report_base')) {
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class quiz_livemonitor_report extends quiz_livemonitor_base {
-
     /**
      * Display the report.
      *
@@ -58,8 +57,10 @@ class quiz_livemonitor_report extends quiz_livemonitor_base {
         $context = context_module::instance($cm->id);
         require_capability('quiz/livemonitor:view', $context);
 
-        $PAGE->set_url(new moodle_url('/mod/quiz/report.php',
-            ['id' => $cm->id, 'mode' => 'livemonitor']));
+        $PAGE->set_url(new moodle_url(
+            '/mod/quiz/report.php',
+            ['id' => $cm->id, 'mode' => 'livemonitor']
+        ));
 
         // Standard quiz report header and navigation tabs, when the base class provides them.
         if (method_exists($this, 'print_header_and_tabs')) {
@@ -81,7 +82,8 @@ class quiz_livemonitor_report extends quiz_livemonitor_base {
         $refresh = (int) (get_config('quiz_livemonitor', 'refreshinterval') ?: 20);
         $PAGE->requires->js_call_amd('quiz_livemonitor/monitor', 'init', [(int) $cm->id, $refresh]);
 
-        echo $OUTPUT->footer();
+        // No footer here: mod/quiz/report.php prints it after display() returns.
+        // Emitting it twice unbalances the container stack.
         return true;
     }
 }
