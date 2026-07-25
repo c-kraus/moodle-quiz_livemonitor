@@ -242,7 +242,14 @@ class progress_provider {
 
         $isoverrun = ($state === 'overdue') || ($state === 'inprogress' && $hastimelimit && $timeleftseconds < 0);
 
-        if ($state === 'finished') {
+        // 'submitted' is the state Moodle 5.0 introduced between 'inprogress' and
+        // 'finished': the student has handed in, but automatic grading has not run
+        // yet (it may be deferred to the mod_quiz\task\grade_submission ad-hoc
+        // task). For supervision the distinction is handed in versus still
+        // working, so it must read as submitted -- otherwise it falls through to
+        // active/idle and the invigilator is told that someone who has handed in
+        // is still answering questions.
+        if (in_array($state, ['finished', 'submitted'], true)) {
             $statuskey = 'finished';
         } else if ($state === 'abandoned') {
             $statuskey = 'abandoned';

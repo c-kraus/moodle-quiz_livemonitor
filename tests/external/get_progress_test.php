@@ -35,8 +35,8 @@ require_once(__DIR__ . '/../fixtures/exam_fixture_trait.php');
  * @package    quiz_livemonitor
  * @copyright  2026 Christian Kraus
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- * @covers     \quiz_livemonitor\external\get_progress
  */
+#[\PHPUnit\Framework\Attributes\CoversClass(\quiz_livemonitor\external\get_progress::class)]
 final class get_progress_test extends \advanced_testcase {
     use exam_fixture_trait;
 
@@ -355,7 +355,7 @@ final class get_progress_test extends \advanced_testcase {
         $this->create_quiz();
         $student = $this->create_student();
         $this->start_attempt($student, 4, time() - 1200);
-        quiz_attempt::create($this->attempt_id_of($student->id))->process_finish(time() - 60, false);
+        $this->finish_attempt((int) $student->id, time() - 60);
         $this->setUser($this->create_teacher());
 
         $row = $this->row_for($this->call_service(), $student->id);

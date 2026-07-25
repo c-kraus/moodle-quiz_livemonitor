@@ -26,8 +26,15 @@ Plus summary tiles (active now / in progress / submitted / time overrun / not st
 
 - **Requires Moodle 4.2 or later** (`$plugin->requires = 2023042400`). Primary target
   **4.4+ / 5.x**.
-- Verified end to end on **Moodle 4.5.12+ with PHP 8.3**, against both **PostgreSQL 16** and
-  **MariaDB 10.11**: 40 PHPUnit tests pass on both engines. See [`TESTING.md`](TESTING.md).
+- Verified end to end on **Moodle 4.5.12+ (LTS)** and **Moodle 5.2.1+**, with PHP 8.3,
+  against both **PostgreSQL 16** and **MariaDB 10.11**: 41 PHPUnit tests pass on every
+  combination, and the report was checked in the browser on each. See
+  [`TESTING.md`](TESTING.md).
+- **On Moodle 5.x the plugin belongs under `public/`**, because 5.0 moved the servable code
+  there: `public/mod/quiz/report/livemonitor`. On 4.x it is `mod/quiz/report/livemonitor`.
+- Moodle 5.0 added the attempt state **`submitted`** (handed in, automatic grading not yet
+  run) between `inprogress` and `finished`. The report treats it as submitted; see
+  *Attempt states* below.
 - The PHP itself is portable across **7.4 – 8.4** (`phpcs --standard=PHPCompatibility
   --runtime-set testVersion 7.4-` reports nothing), so the Moodle version is the binding
   constraint, not the PHP version.
@@ -96,10 +103,36 @@ All data is derived from tables `mod_quiz` already populates (`quiz_attempts`, `
 step of a question attempt is in a state other than `todo` (never touched) or `gaveup` (left
 blank on a submitted attempt).
 
-Verified on Moodle 4.5 against single-answer and two-of-four multi-response questions,
-including that a blank submission counts as 0 answered rather than as complete. The proxy is
-still worth re-checking against your own question types, especially cloze and other
-multi-part questions, on a realistic quiz.
+Verified on Moodle 4.5 and 5.2 against single-answer and two-of-four multi-response
+questions, including that a blank submission counts as 0 answered rather than as complete.
+The proxy is still worth re-checking against your own question types, especially cloze and
+other multi-part questions, on a realistic quiz.
+
+## Attempt states
+
+The report maps `mod_quiz` attempt states onto the statuses a supervisor cares about:
+
+| Attempt state | Shown as | Note |
+|---------------|----------|------|
+| *no attempt*  | Not started | |
+| `inprogress`, recent server activity | Active | within the *Active window* setting |
+| `inprogress`, no recent activity | Idle | |
+| `inprogress` past its deadline, or `overdue` | Time overrun | |
+| `submitted` | Submitted | **Moodle 5.0+**: handed in, grading not yet run |
+| `finished` | Submitted | |
+| `abandoned` | Abandoned | see the caveat below |
+
+`submitted` matters: Moodle 5.0 split submitting from grading, and grading can be deferred to
+the `mod_quiz\task\grade_submission` ad-hoc task — which is also how the 5.0 upgrade grades
+pre-existing attempts. An attempt can therefore genuinely sit in `submitted` while an
+invigilator is watching, and treating it as anything other than submitted would tell them a
+student who has handed in is still answering questions.
+
+Known gap: an `abandoned` attempt gets its own row and badge but is counted in no summary
+tile except the participant total, so the tiles do not add up to the number of participants.
+Abandoned attempts are rare during a supervised exam. This is pinned by
+`test_abandoned_attempt_is_absent_from_every_summary_tile`, so changing it is a deliberate
+decision rather than an accident.
 
 ## License
 

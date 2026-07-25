@@ -220,6 +220,54 @@ trait exam_fixture_trait {
     }
 
     /**
+     * Submit and grade a user's attempt, across Moodle versions.
+     *
+     * Moodle 5.0 split quiz_attempt::process_finish() into process_submit() plus
+     * process_grade_submission() and deprecated the old method, so calling it
+     * directly makes the suite emit debugging notices on 5.x.
+     *
+     * @param int $userid the user whose attempt to finish.
+     * @param int $timestamp unix time to record as the finish time.
+     * @return void
+     */
+    protected function finish_attempt(int $userid, int $timestamp): void {
+        $attemptobj = quiz_attempt::create($this->attempt_id_of($userid));
+        if (method_exists($attemptobj, 'process_submit')) {
+            $attemptobj->process_submit($timestamp, false);
+            $attemptobj->process_grade_submission($timestamp);
+        } else {
+            $attemptobj->process_finish($timestamp, false);
+        }
+    }
+
+    /**
+     * Leave a user's attempt submitted but not yet graded.
+     *
+     * Moodle 5.0 added the intermediate 'submitted' state: process_submit() sets
+     * it and stamps timefinish, and grading moves the attempt on to 'finished'
+     * afterwards -- possibly in the mod_quiz\task\grade_submission ad-hoc task,
+     * which is also how the 5.0 upgrade grades pre-existing attempts. So an
+     * attempt can genuinely sit in 'submitted' while a teacher is watching.
+     *
+     * The state is written directly rather than through the API so the fixture
+     * works on 4.x too, where the state does not exist but the report must still
+     * not misread it.
+     *
+     * @param \stdClass $attempt the attempt record.
+     * @param int $timefinish unix time the student handed in.
+     * @return void
+     */
+    protected function mark_submitted_awaiting_grading(\stdClass $attempt, int $timefinish): void {
+        global $DB;
+        $DB->update_record('quiz_attempts', (object) [
+            'id' => $attempt->id,
+            'state' => 'submitted',
+            'timefinish' => $timefinish,
+            'timemodified' => $timefinish,
+        ]);
+    }
+
+    /**
      * Get the single non-preview attempt id of a user.
      *
      * @param int $userid the user id.
@@ -281,7 +329,7 @@ trait exam_fixture_trait {
         $this->set_last_activity($this->start_attempt($active, 3, time() - 300), time() - 5);
         $this->set_last_activity($this->start_attempt($idle, 1, time() - 900), time() - 600);
         $this->start_attempt($finished, 4, time() - 1200);
-        quiz_attempt::create($this->attempt_id_of($finished->id))->process_finish(time() - 120, false);
+        $this->finish_attempt((int) $finished->id, time() - 120);
         $this->set_last_activity($this->start_attempt($overrun, 2, time() - 3600), time() - 1500);
 
         return [

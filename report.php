@@ -24,25 +24,17 @@
 
 defined('MOODLE_INTERNAL') || die();
 
-global $CFG;
-
-// Version compatibility: the quiz report base class moved into a namespace in Moodle 4.2.
-// Alias whichever exists so this report runs on 4.1 as well as 4.4+/5.x.
-if (class_exists('\mod_quiz\local\reports\report_base')) {
-    class_alias('\mod_quiz\local\reports\report_base', 'quiz_livemonitor_base');
-} else {
-    require_once($CFG->dirroot . '/mod/quiz/report/default.php');
-    class_alias('quiz_default_report', 'quiz_livemonitor_base');
-}
-
 /**
  * The Live monitor report: a compact, self-refreshing overview of quiz attempts in progress.
+ *
+ * The class name is dictated by mod/quiz/report.php, which instantiates
+ * 'quiz_' . $mode . '_report', so it stays in the global namespace.
  *
  * @package    quiz_livemonitor
  * @copyright  2026 Christian Kraus
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-class quiz_livemonitor_report extends quiz_livemonitor_base {
+class quiz_livemonitor_report extends \mod_quiz\local\reports\report_base {
     /**
      * Display the report.
      *
@@ -52,7 +44,7 @@ class quiz_livemonitor_report extends quiz_livemonitor_base {
      * @return bool
      */
     public function display($quiz, $cm, $course): bool {
-        global $OUTPUT, $PAGE;
+        global $PAGE;
 
         $context = context_module::instance($cm->id);
         require_capability('quiz/livemonitor:view', $context);
@@ -62,15 +54,8 @@ class quiz_livemonitor_report extends quiz_livemonitor_base {
             ['id' => $cm->id, 'mode' => 'livemonitor']
         ));
 
-        // Standard quiz report header and navigation tabs, when the base class provides them.
-        if (method_exists($this, 'print_header_and_tabs')) {
-            $this->print_header_and_tabs($cm, $course, $quiz, 'livemonitor');
-        } else {
-            $PAGE->set_title($quiz->name);
-            $PAGE->set_heading($course->fullname);
-            echo $OUTPUT->header();
-            echo $OUTPUT->heading(format_string($quiz->name));
-        }
+        // Standard quiz report header and navigation tabs.
+        $this->print_header_and_tabs($cm, $course, $quiz, 'livemonitor');
 
         $activewindow = (int) (get_config('quiz_livemonitor', 'activewindow') ?: 60);
 

@@ -29,8 +29,8 @@ require_once(__DIR__ . '/../fixtures/exam_fixture_trait.php');
  * @package    quiz_livemonitor
  * @copyright  2026 Christian Kraus
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
- * @covers     \quiz_livemonitor\local\progress_provider
  */
+#[\PHPUnit\Framework\Attributes\CoversClass(\quiz_livemonitor\local\progress_provider::class)]
 final class progress_provider_test extends \advanced_testcase {
     use exam_fixture_trait;
 
@@ -105,9 +105,7 @@ final class progress_provider_test extends \advanced_testcase {
         $this->create_quiz();
         $user = $this->create_student();
         $this->start_attempt($user, 4, time() - 1200);
-        quiz_attempt::create(
-            $this->attempt_id_of($user->id)
-        )->process_finish(time() - 120, false);
+        $this->finish_attempt((int) $user->id, time() - 120);
 
         $row = $this->row_for($this->snapshot(), $user->id);
 
@@ -172,13 +170,46 @@ final class progress_provider_test extends \advanced_testcase {
         $user = $this->create_student();
         // Start but answer nothing, then submit: every question ends up "gaveup".
         $this->start_attempt($user, 0, time() - 600);
-        quiz_attempt::create($this->attempt_id_of($user->id))->process_finish(time() - 60, false);
+        $this->finish_attempt((int) $user->id, time() - 60);
 
         $row = $this->row_for($this->snapshot(), $user->id);
 
         $this->assertSame('finished', $row['statuskey']);
         $this->assertSame(0, $row['answered'], 'gaveup must not count as answered');
         $this->assertSame(0, $row['progresspercent']);
+    }
+
+    /**
+     * A handed-in but not yet graded attempt must not look like someone still writing.
+     *
+     * Moodle 5.0 added the intermediate 'submitted' state between 'inprogress'
+     * and 'finished'. For an invigilator the distinction that matters is handed
+     * in versus still working, so 'submitted' has to read as submitted -- and
+     * must never fall through to active/idle, which would tell the supervisor
+     * that a student who has handed in is still answering questions.
+     */
+    public function test_submitted_but_ungraded_attempt_counts_as_submitted(): void {
+        $this->setAdminUser();
+        $this->create_quiz();
+        $user = $this->create_student();
+        $attempt = $this->start_attempt($user, 4, time() - 1200);
+        $this->mark_submitted_awaiting_grading($attempt, time() - 120);
+
+        $data = $this->snapshot();
+        $row = $this->row_for($data, $user->id);
+
+        $this->assertSame(
+            'finished',
+            $row['statuskey'],
+            'a submitted attempt must not be reported as still in progress'
+        );
+        $this->assertFalse($row['isactive']);
+        $this->assertFalse($row['isoverrun']);
+        $this->assertFalse($row['hastimelimit'], 'a handed-in attempt has no remaining time');
+        $this->assertSame('', $row['timeleftlabel']);
+        $this->assertSame(1, $data['summary']['finished']);
+        $this->assertSame(0, $data['summary']['inprogress']);
+        $this->assertSame(0, $data['summary']['active']);
     }
 
     public function test_only_the_latest_attempt_of_a_user_is_reported(): void {
@@ -188,7 +219,7 @@ final class progress_provider_test extends \advanced_testcase {
 
         // First attempt: everything answered, then submitted.
         $this->start_attempt($user, 4, time() - 3600);
-        quiz_attempt::create($this->attempt_id_of($user->id))->process_finish(time() - 3000, false);
+        $this->finish_attempt((int) $user->id, time() - 3000);
 
         // Second attempt: only one answer so far, still in progress.
         $second = $this->start_attempt($user, 1, time() - 300, 2);
@@ -232,7 +263,7 @@ final class progress_provider_test extends \advanced_testcase {
         $this->set_last_activity($this->start_attempt($active, 3, time() - 300), time() - 5);
         $this->set_last_activity($this->start_attempt($idle, 1, time() - 900), time() - 600);
         $this->start_attempt($finished, 4, time() - 1200);
-        quiz_attempt::create($this->attempt_id_of($finished->id))->process_finish(time() - 120, false);
+        $this->finish_attempt((int) $finished->id, time() - 120);
         $this->set_last_activity($this->start_attempt($overrun, 2, time() - 3600), time() - 1500);
 
         $data = $this->snapshot();

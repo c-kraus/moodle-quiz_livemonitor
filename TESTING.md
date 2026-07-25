@@ -1,29 +1,36 @@
 # Testing quiz_livemonitor locally
 
 A verified walkthrough for bringing this plugin up in a throwaway Moodle on your
-own machine. Every command below was run end to end against **Moodle 4.5.12+ with
-PHP 8.3**, on **both PostgreSQL 16 and MariaDB 10.11**, on macOS with OrbStack
-providing the Docker engine.
-
-Docker Desktop works identically — `moodle-docker` only needs a Docker engine and
+own machine, on macOS with OrbStack providing the Docker engine. Docker Desktop
+works identically — `moodle-docker` only needs a Docker engine and
 `docker compose`.
 
 ## What has actually been verified
 
 | Axis | Result |
 |------|--------|
-| Moodle 4.5.12+ / PHP 8.3 / PostgreSQL 16 | 40 PHPUnit tests pass; report verified in the browser |
-| Moodle 4.5.12+ / PHP 8.3 / MariaDB 10.11 | 40 PHPUnit tests pass; report verified in the browser with 205 participants |
+| Moodle 4.5.12+ (LTS) / PHP 8.3 / PostgreSQL 16 | 41 PHPUnit tests pass; report verified in the browser |
+| Moodle 4.5.12+ (LTS) / PHP 8.3 / MariaDB 10.11 | 41 PHPUnit tests pass; report verified in the browser with 205 participants |
+| Moodle 5.2.1+ / PHP 8.3 / MariaDB 10.11 | 41 PHPUnit tests pass with no deprecations or notices; report verified in the browser |
 | PHP syntax range | `phpcs --standard=PHPCompatibility --runtime-set testVersion 7.4-` reports nothing |
 | Moodle coding style | `phpcs --standard=moodle` reports zero errors |
 | Snapshot cost, 205 participants, MariaDB | 16.6 ms in 5 queries; `count_answered` 1.7 ms; full page 0.23 s |
 | Snapshot cost, 200 participants, PostgreSQL | 4–7 ms in 5 queries |
 
-Not yet verified: **Moodle 5.x**, and any version other than 4.5. The report is
-built on `mod_quiz` internals (`quiz_attempts`, `quiz_slots`, `question_attempts`,
-`question_attempt_steps`) plus the quiz report base class, so a major-version
-change is the axis most likely to need attention. Run the suite on the target
-branch before deploying.
+## Two things Moodle 5.0 changed that matter here
+
+**The servable code moved into `public/`.** So the plugin lives at
+`public/mod/quiz/report/livemonitor` on 5.x and `mod/quiz/report/livemonitor` on
+4.x. `$CFG->dirroot` points at `public/`, while `vendor/` and the `admin/cli/`
+tools stay at the repository root — which is why `tests/fixtures/seed_testdata.php`
+looks for the Composer autoloader in both places.
+
+**A new attempt state, `submitted`,** sits between `inprogress` and `finished`:
+the student has handed in but automatic grading has not run, possibly because it
+was deferred to the `mod_quiz\task\grade_submission` ad-hoc task. The report maps
+it to Submitted. Before that was handled it fell through to Idle, so a supervisor
+would have been told that someone who had handed in was still sitting there —
+`test_submitted_but_ungraded_attempt_counts_as_submitted` pins it.
 
 ## 1. Prerequisites
 
@@ -44,6 +51,7 @@ container, so a symlink pointing anywhere outside that directory does not resolv
 inside the container and the plugin is invisible to Moodle:
 
 ```bash
+# Moodle 4.x. On 5.x the target is moodle/public/mod/quiz/report/livemonitor.
 git clone https://github.com/c-kraus/moodle-quiz_livemonitor.git \
     moodle/mod/quiz/report/livemonitor
 
@@ -109,16 +117,21 @@ This creates a course, a quiz with a 30 minute limit and four questions (one of
 them a two-of-four multi-response question, so the answered-question heuristic is
 exercised against a multi-part question), plus:
 
-| User      | Expected status | Progress |
-|-----------|-----------------|----------|
-| `stud1`   | Active          | 3 / 4    |
-| `stud2`   | Idle            | 1 / 4    |
-| `stud3`   | Submitted       | 4 / 4    |
-| `stud4`   | Time overrun    | 2 / 4    |
-| `stud5`   | Not started     | 0 / 4    |
+| User      | Expected status | Progress | Note |
+|-----------|-----------------|----------|------|
+| `stud1`   | Active          | 3 / 4    | |
+| `stud2`   | Idle            | 1 / 4    | |
+| `stud3`   | Submitted       | 4 / 4    | submitted and graded |
+| `stud4`   | Time overrun    | 2 / 4    | |
+| `stud5`   | Not started     | 0 / 4    | |
+| `stud6`   | Submitted       | 4 / 4    | state `submitted`, grading not yet run |
 
 Teacher `dozentin`, all users password `Dev#Local1234`. The script prints the
 report URL and is repeatable — re-running deletes the previous course and users.
+
+`stud6` is written straight into the `submitted` state so the case is covered on
+4.x too, where `mod_quiz` never produces it but the report must still not misread
+it.
 
 **"Active" ages out.** It means server-side activity within the *Active window*
 setting (default 60s), so `stud1` turns Idle a minute after seeding. Re-run the
@@ -137,12 +150,13 @@ UPDATE m_quiz_attempts SET timemodified = extract(epoch from now())::int
 Log in as `dozentin` and open the report from *Quiz → Results → Live monitor*.
 
 - [ ] The report appears in the Results navigation and in the report dropdown
-- [ ] All five participants are listed, sorted by name, with the statuses above
+- [ ] All six participants are listed, sorted by name, with the statuses above
 - [ ] Progress bars and `X / N` labels match the table above
 - [ ] Elapsed and remaining time are plausible; `stud4` shows "over by …" and its
       row is highlighted
-- [ ] Summary tiles read 1 active / 3 in progress / 1 submitted / 1 overrun /
-      1 not started / 5 participants
+- [ ] `stud6` reads **Submitted**, not Idle, and shows no remaining time
+- [ ] Summary tiles read 1 active / 3 in progress / 2 submitted / 1 overrun /
+      1 not started / 6 participants
 - [ ] The table refreshes on its own at the configured interval, with no page
       reload and no console errors
 - [ ] *Pause auto-refresh* stops it; *Resume* restarts it and refreshes at once
@@ -164,14 +178,14 @@ bin/moodle-docker-compose exec webserver vendor/bin/phpunit \
   --testsuite quiz_livemonitor_testsuite
 ```
 
-40 tests, 161 assertions. After adding or moving a test file, re-register the
+41 tests, 169 assertions. After adding or moving a test file, re-register the
 suite or PHPUnit reports "No tests executed":
 
 ```bash
 bin/moodle-docker-compose exec webserver php admin/tool/phpunit/cli/util.php --buildconfig
 ```
 
-`tests/local/progress_provider_test.php` (22) covers the snapshot itself: every
+`tests/local/progress_provider_test.php` (23) covers the snapshot itself: every
 status, the answered-question counter (including a multi-response question and a
 blank submission), the summary counters, the latest-attempt and preview rules,
 sorting, the time-limit and close-date deadlines, that supervisors are not listed
@@ -220,7 +234,7 @@ bin/moodle-docker-compose exec webserver php admin/tool/phpunit/cli/init.php
 bin/moodle-docker-compose exec webserver vendor/bin/phpunit --testsuite quiz_livemonitor_testsuite
 ```
 
-On MariaDB 10.11 all 40 tests pass and the correlated subquery costs 1.7 ms for
+On MariaDB 10.11 all 41 tests pass and the correlated subquery costs 1.7 ms for
 164 attempts, so the concern did not materialise. Re-run `init.php` after any
 change to `version.php`, or PHPUnit refuses to start.
 

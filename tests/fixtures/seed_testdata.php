@@ -37,9 +37,27 @@ define('CLI_SCRIPT', true);
 
 require(__DIR__ . '/../../../../../../config.php');
 require_once($CFG->libdir . '/clilib.php');
+
 // The question generators pull in the PHPUnit testcase base classes, and the
-// plain CLI bootstrap does not load the Composer autoloader.
-require_once($CFG->dirroot . '/vendor/autoload.php');
+// plain CLI bootstrap does not load the Composer autoloader. Moodle 5.0 moved the
+// servable code into public/, so $CFG->dirroot points there while vendor/ stays
+// at the repository root one level up.
+$autoloadcandidates = [
+    $CFG->dirroot . '/vendor/autoload.php',
+    dirname($CFG->dirroot) . '/vendor/autoload.php',
+];
+$autoloader = null;
+foreach ($autoloadcandidates as $candidate) {
+    if (file_exists($candidate)) {
+        $autoloader = $candidate;
+        break;
+    }
+}
+if ($autoloader === null) {
+    cli_error("Composer dependencies are missing. Run 'composer install' in the Moodle "
+        . 'checkout first -- the test-data generators need the PHPUnit base classes.');
+}
+require_once($autoloader);
 require_once($CFG->libdir . '/testing/generator/lib.php');
 require_once($CFG->dirroot . '/mod/quiz/locallib.php');
 
@@ -129,6 +147,7 @@ $studentspecs = [
     ['Clara', 'Abgegeben', 'finished'],
     ['David', 'Ueberzogen', 'overrun'],
     ['Eva', 'Nichtda', 'notstarted'],
+    ['Frank', 'Abgegebenungewertet', 'submitted'],
 ];
 foreach ($studentspecs as $i => $spec) {
     $user = $generator->create_user([
@@ -140,7 +159,7 @@ foreach ($studentspecs as $i => $spec) {
     $generator->enrol_user($user->id, $course->id, 'student');
     $students[$spec[2]] = $user;
 }
-cli_writeln("Users: dozentin, stud1..stud5 -- password {$password}");
+cli_writeln("Users: dozentin, stud1..stud6 -- password {$password}");
 
 /**
  * Start an attempt and answer the first $answercount slots correctly.
@@ -201,7 +220,14 @@ cli_writeln('Bernd Untaetig   -> inprogress, 1/4, last activity 10m ago   => idl
 
 // Submitted.
 $attempt = quiz_livemonitor_seed_attempt($quiz, $students['finished'], 4, $now - 1200);
-$attempt->process_finish($now - 120, false);
+// Moodle 5.0 split process_finish() into process_submit() plus
+// process_grade_submission() and deprecated the old method.
+if (method_exists($attempt, 'process_submit')) {
+    $attempt->process_submit($now - 120, false);
+    $attempt->process_grade_submission($now - 120);
+} else {
+    $attempt->process_finish($now - 120, false);
+}
 cli_writeln('Clara Abgegeben  -> finished, 4/4                            => submitted');
 
 // Time overrun: started an hour ago against a 30 minute limit.
@@ -210,6 +236,18 @@ $DB->set_field('quiz_attempts', 'timemodified', $now - 1500, ['id' => $attempt->
 cli_writeln('David Ueberzogen -> inprogress, 2/4, started 60m ago         => time overrun');
 
 cli_writeln('Eva Nichtda      -> no attempt                               => not started');
+
+// Handed in but not yet graded: the state Moodle 5.0 introduced between
+// inprogress and finished. Written directly so the fixture also works on 4.x,
+// where mod_quiz never produces it but the report must still not misread it.
+$attempt = quiz_livemonitor_seed_attempt($quiz, $students['submitted'], 4, $now - 1500);
+$DB->update_record('quiz_attempts', (object) [
+    'id' => $attempt->get_attemptid(),
+    'state' => 'submitted',
+    'timefinish' => $now - 240,
+    'timemodified' => $now - 240,
+]);
+cli_writeln('Frank Abgegeben. -> submitted, awaiting grading (Moodle 5.x state) => submitted');
 
 cli_separator();
 cli_writeln('Report: ' . (new moodle_url(
