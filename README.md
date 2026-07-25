@@ -38,19 +38,37 @@ Plus summary tiles (active now / in progress / submitted / time overrun / not st
 - The PHP itself is portable across **7.4 – 8.4** (`phpcs --standard=PHPCompatibility
   --runtime-set testVersion 7.4-` reports nothing), so the Moodle version is the binding
   constraint, not the PHP version.
-- **4.1 is not supported.** The quiz report base class was namespaced in 4.2 and `report.php`
-  aliases whichever exists, but `classes/external/get_progress.php` extends the
-  `core_external\*` classes, which do not exist on 4.1 — the web service class cannot be
-  loaded there, so the auto-refresh fails at run time. `$plugin->requires` therefore blocks
-  installation on 4.1 rather than letting it fail during an exam. Supporting 4.1 would mean
-  rewriting that class against the legacy global `external_*` classes.
+- **4.1 is not supported**, and `$plugin->requires` blocks installation there rather than
+  letting it fail during an exam. Two 4.2 changes are relied on directly: the quiz report base
+  class `mod_quiz\local\reports\report_base`, which `report.php` extends, and the
+  `core_external\*` classes, which `classes/external/get_progress.php` extends. Neither exists
+  on 4.1, so the report class and the polling web service both fail to load. Supporting 4.1
+  would mean reinstating a base-class shim and rewriting the web service against the legacy
+  global `external_*` classes.
 
-## Installation (local development)
+## Installation
 
-This plugin is installed at `mod/quiz/report/livemonitor/` inside a Moodle codebase.
-The repository root **is** the plugin (files like `version.php` live at the top level).
+The repository root **is** the plugin — `version.php` and friends live at the top level — and
+its place in a Moodle codebase is:
 
-Clone this repository straight to its final location inside the Moodle tree:
+| Moodle | Path |
+|--------|------|
+| 4.2 – 4.5 | `mod/quiz/report/livemonitor/` |
+| 5.0 and later | `public/mod/quiz/report/livemonitor/` |
+
+### From a ZIP (how a computing centre will usually do it)
+
+**Site administration → Plugins → Install plugins**, upload the ZIP, and choose plugin type
+**Quiz report (quizreport)**. Moodle unpacks it to the right place and runs the upgrade. The
+ZIP contains a single top-level `livemonitor/` directory, which is what the installer expects.
+
+To build one from a checkout:
+
+```bash
+git archive --format=zip --prefix=livemonitor/ -o moodle-quiz_livemonitor.zip HEAD
+```
+
+### From git (development)
 
 ```bash
 git clone https://github.com/c-kraus/moodle-quiz_livemonitor.git \
@@ -83,6 +101,23 @@ test locally, then hand this repository (or a packaged ZIP) to the computing cen
 review and deployment. The plugin is deliberately review-friendly: a standard subplugin,
 **read-only** (writes nothing to the database), no core modifications, capability-gated, and
 a Privacy API **null provider** (it stores no personal data of its own).
+
+Points a reviewer usually asks about:
+
+- **No database tables of its own.** `db/` contains only `access.php` (one capability) and
+  `services.php` (one read-only web service). There is no `install.xml` and no `upgrade.php`.
+- **The web service is declared `'type' => 'read'`** and gated on `quiz/livemonitor:view`. It
+  returns working status only, never answer content. A test asserts that declaration, and
+  another asserts that generating a snapshot writes nothing to any table.
+- **`tests/fixtures/seed_testdata.php`** is a development helper that creates a test course
+  and users with a known password. It is CLI-only and refuses to run unless developer
+  debugging is enabled, so it cannot do anything on a production site. Delete it before
+  deployment if that is your policy.
+- **Tests:** 41 PHPUnit tests, run with
+  `vendor/bin/phpunit --testsuite quiz_livemonitor_testsuite`. See [`TESTING.md`](TESTING.md)
+  for what is covered and on which Moodle, PHP and database versions it has been verified.
+- **`maturity` is `MATURITY_ALPHA`** deliberately: the plugin has been tested thoroughly but
+  has not yet run in a real exam.
 
 ## Capabilities
 
@@ -133,6 +168,10 @@ tile except the participant total, so the tiles do not add up to the number of p
 Abandoned attempts are rare during a supervised exam. This is pinned by
 `test_abandoned_attempt_is_absent_from_every_summary_tile`, so changing it is a deliberate
 decision rather than an accident.
+
+## Version
+
+`v0.2.0` (`$plugin->version = 2026072500`), maturity **alpha**. Requires Moodle 4.2 or later.
 
 ## License
 
