@@ -142,15 +142,40 @@ tab will look as though polling is broken.
 
 ```bash
 bin/moodle-docker-compose exec webserver php admin/tool/phpunit/cli/init.php
-bin/moodle-docker-compose exec webserver vendor/bin/phpunit --testdox \
-  mod/quiz/report/livemonitor/tests/local/progress_provider_test.php
+bin/moodle-docker-compose exec webserver vendor/bin/phpunit \
+  --testsuite quiz_livemonitor_testsuite
 ```
 
-22 tests cover `progress_provider`: every status, the answered-question counter
-(including a multi-response question and a blank submission), the summary
-counters, the latest-attempt and preview rules, sorting, the time-limit and
-close-date deadlines, that supervisors are not listed as participants, that the
-snapshot writes nothing, and that its query count does not grow with the cohort.
+40 tests, 161 assertions. After adding or moving a test file, re-register the
+suite or PHPUnit reports "No tests executed":
+
+```bash
+bin/moodle-docker-compose exec webserver php admin/tool/phpunit/cli/util.php --buildconfig
+```
+
+`tests/local/progress_provider_test.php` (22) covers the snapshot itself: every
+status, the answered-question counter (including a multi-response question and a
+blank submission), the summary counters, the latest-attempt and preview rules,
+sorting, the time-limit and close-date deadlines, that supervisors are not listed
+as participants, that the snapshot writes nothing, and that its query count does
+not grow with the cohort.
+
+`tests/external/get_progress_test.php` (18) covers the web service the teacher's
+browser polls: that the payload validates against its own declared structure,
+that the declaration still carries every field the polled template renders, that
+all six status keys survive `PARAM_ALPHA` intact, that the polled payload matches
+the first server-side render, and the refusals — student, outsider, prohibited
+capability, unknown cmid, a cmid belonging to another module type.
+
+Both files share `tests/fixtures/exam_fixture_trait.php`, which the generated
+suite excludes from test discovery.
+
+One trap worth knowing: `clean_returnvalue()` fails loudly when a *declared* key
+is missing or mistyped, but silently *strips* anything the declaration does not
+mention. So dropping a field from `execute_returns()` does not break that check —
+the first render still shows the field and it vanishes on the first poll. That is
+why `test_the_declaration_keeps_every_field_the_polled_template_renders` reads the
+field list out of `monitor_body.mustache` at run time and asserts against it.
 
 **Do not size a test cohort by what feels realistic.** Under PHPUnit,
 `get_enrolled_users()` with a capability filter and `$onlyactive = true` is

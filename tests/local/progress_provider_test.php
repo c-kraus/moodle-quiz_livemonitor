@@ -17,15 +17,11 @@
 namespace quiz_livemonitor\local;
 
 use mod_quiz\quiz_attempt;
-use mod_quiz\quiz_settings;
+use quiz_livemonitor\exam_fixture_trait;
 
 defined('MOODLE_INTERNAL') || die();
 
-global $CFG;
-// lib.php defines the QUIZ_GRADE* constants the mod_quiz generator relies on;
-// locallib.php provides quiz_add_quiz_question() and the attempt helpers.
-require_once($CFG->dirroot . '/mod/quiz/lib.php');
-require_once($CFG->dirroot . '/mod/quiz/locallib.php');
+require_once(__DIR__ . '/../fixtures/exam_fixture_trait.php');
 
 /**
  * Tests for the read-only progress snapshot.
@@ -36,206 +32,11 @@ require_once($CFG->dirroot . '/mod/quiz/locallib.php');
  * @covers     \quiz_livemonitor\local\progress_provider
  */
 final class progress_provider_test extends \advanced_testcase {
-    /** @var int seconds within which activity counts as "active" in these tests. */
-    const ACTIVE_WINDOW = 60;
-
-    /** @var int the quiz time limit used by most tests, in seconds. */
-    const TIME_LIMIT = 1800;
-
-    /** @var \stdClass the course. */
-    protected $course;
-
-    /** @var \stdClass the quiz. */
-    protected $quiz;
-
-    /** @var \stdClass the course module. */
-    protected $cm;
-
-    /** @var \context_module the module context. */
-    protected $context;
+    use exam_fixture_trait;
 
     protected function setUp(): void {
         parent::setUp();
         $this->resetAfterTest();
-    }
-
-    /**
-     * Create a course and a four-question quiz.
-     *
-     * Slot 3 is a two-of-four multi-response question, so the answered-question
-     * heuristic is exercised against a multi-part question and not only against
-     * single-answer ones.
-     *
-     * @param array $quizoverrides settings to override on the quiz.
-     * @return void
-     */
-    protected function create_quiz(array $quizoverrides = []): void {
-        $generator = $this->getDataGenerator();
-        $this->course = $generator->create_course();
-
-        $this->quiz = $generator->get_plugin_generator('mod_quiz')->create_instance($quizoverrides + [
-            'course' => $this->course->id,
-            'timelimit' => self::TIME_LIMIT,
-            'grade' => 100,
-            'preferredbehaviour' => 'deferredfeedback',
-        ]);
-        $this->cm = get_coursemodule_from_instance('quiz', $this->quiz->id);
-        $this->context = \context_module::instance($this->cm->id);
-
-        $questiongenerator = $generator->get_plugin_generator('core_question');
-        $category = $questiongenerator->create_question_category(['contextid' => $this->context->id]);
-        foreach (['one_of_four', 'one_of_four', 'two_of_four', 'one_of_four'] as $which) {
-            $question = $questiongenerator->create_question('multichoice', $which, ['category' => $category->id]);
-            quiz_add_quiz_question($question->id, $this->quiz, 0, 1);
-        }
-
-        // An attempt cannot start while the quiz grade and the question grades disagree.
-        quiz_settings::create($this->quiz->id)->get_grade_calculator()->recompute_quiz_sumgrades();
-        $this->quiz = $this->get_quiz_record();
-    }
-
-    /**
-     * Reload the quiz record from the database.
-     *
-     * @return \stdClass
-     */
-    protected function get_quiz_record(): \stdClass {
-        global $DB;
-        return $DB->get_record('quiz', ['id' => $this->quiz->id], '*', MUST_EXIST);
-    }
-
-    /**
-     * Create a student enrolled on the course.
-     *
-     * @param string $firstname the first name, so tests can assert on ordering.
-     * @param string $lastname the last name.
-     * @return \stdClass the user record.
-     */
-    protected function create_student(string $firstname = 'Test', string $lastname = 'Student'): \stdClass {
-        $user = $this->getDataGenerator()->create_user([
-            'firstname' => $firstname,
-            'lastname' => $lastname,
-        ]);
-        $this->getDataGenerator()->enrol_user($user->id, $this->course->id, 'student');
-        return $user;
-    }
-
-    /**
-     * Start an attempt for a user and answer the first $answercount slots correctly.
-     *
-     * The raw question-engine field names (q<usageid>:<slot>_<name>) are posted
-     * rather than using the simulated-response API, whose per-qtype
-     * prepare_simulated_post_data() expects the answer text rather than the
-     * choice index that get_correct_response() returns, and silently records
-     * nothing when they do not match.
-     *
-     * @param \stdClass $user the user to attempt as.
-     * @param int $answercount how many slots to answer.
-     * @param int|null $timestart unix time to backdate the attempt start to.
-     * @param int $attemptnumber the attempt number.
-     * @param bool $preview whether to mark the attempt as a preview.
-     * @return \stdClass the attempt record.
-     */
-    protected function start_attempt(
-        \stdClass $user,
-        int $answercount = 0,
-        ?int $timestart = null,
-        int $attemptnumber = 1,
-        bool $preview = false
-    ): \stdClass {
-        global $DB;
-
-        $timestart = $timestart ?? time();
-
-        $quizobj = quiz_settings::create($this->quiz->id, $user->id);
-        $lastattempt = $attemptnumber > 1
-            ? $DB->get_record(
-                'quiz_attempts',
-                ['quiz' => $this->quiz->id, 'userid' => $user->id, 'attempt' => $attemptnumber - 1]
-            )
-            : null;
-        $attempt = quiz_prepare_and_start_new_attempt(
-            $quizobj,
-            $attemptnumber,
-            $lastattempt,
-            false,
-            [],
-            [],
-            $user->id
-        );
-
-        $DB->set_field('quiz_attempts', 'timestart', $timestart, ['id' => $attempt->id]);
-        if ($preview) {
-            $DB->set_field('quiz_attempts', 'preview', 1, ['id' => $attempt->id]);
-        }
-
-        if ($answercount > 0) {
-            $attemptobj = quiz_attempt::create($attempt->id);
-            $quba = \question_engine::load_questions_usage_by_activity($attempt->uniqueid);
-            $slots = $attemptobj->get_slots();
-            $postdata = ['slots' => implode(',', $slots)];
-            $done = 0;
-            foreach ($slots as $slot) {
-                if ($done >= $answercount) {
-                    break;
-                }
-                $questionattempt = $quba->get_question_attempt($slot);
-                $prefix = 'q' . $attempt->uniqueid . ':' . $slot . '_';
-                $postdata[$prefix . ':sequencecheck'] = $questionattempt->get_sequence_check_count();
-                foreach ($questionattempt->get_question()->get_correct_response() as $name => $value) {
-                    $postdata[$prefix . $name] = $value;
-                }
-                $done++;
-            }
-            $quba->process_all_actions($timestart + 60, $postdata);
-            \question_engine::save_questions_usage_by_activity($quba);
-            $DB->set_field('quiz_attempts', 'timemodified', $timestart + 60, ['id' => $attempt->id]);
-        }
-
-        return $DB->get_record('quiz_attempts', ['id' => $attempt->id], '*', MUST_EXIST);
-    }
-
-    /**
-     * Force an attempt's last-activity time.
-     *
-     * @param \stdClass $attempt the attempt record.
-     * @param int $timemodified unix time to set.
-     * @return void
-     */
-    protected function set_last_activity(\stdClass $attempt, int $timemodified): void {
-        global $DB;
-        $DB->set_field('quiz_attempts', 'timemodified', $timemodified, ['id' => $attempt->id]);
-    }
-
-    /**
-     * Build the snapshot under test.
-     *
-     * @param int|null $activewindow override the active window.
-     * @return array
-     */
-    protected function snapshot(?int $activewindow = null): array {
-        return progress_provider::get_data(
-            $this->get_quiz_record(),
-            $this->cm,
-            $this->context,
-            $activewindow ?? self::ACTIVE_WINDOW
-        );
-    }
-
-    /**
-     * Find one row of a snapshot by user id.
-     *
-     * @param array $data the snapshot.
-     * @param int $userid the user id.
-     * @return array the row.
-     */
-    protected function row_for(array $data, int $userid): array {
-        foreach ($data['rows'] as $row) {
-            if ($row['userid'] === $userid) {
-                return $row;
-            }
-        }
-        $this->fail('No row found for user ' . $userid);
     }
 
     public function test_enrolled_student_without_attempt_is_not_started(): void {
@@ -305,7 +106,7 @@ final class progress_provider_test extends \advanced_testcase {
         $user = $this->create_student();
         $this->start_attempt($user, 4, time() - 1200);
         quiz_attempt::create(
-            $this->row_attempt_id($user->id)
+            $this->attempt_id_of($user->id)
         )->process_finish(time() - 120, false);
 
         $row = $this->row_for($this->snapshot(), $user->id);
@@ -318,21 +119,6 @@ final class progress_provider_test extends \advanced_testcase {
         $this->assertFalse($row['isactive']);
     }
 
-    /**
-     * Get the single attempt id of a user, for tests that need the object.
-     *
-     * @param int $userid the user id.
-     * @return int the attempt id.
-     */
-    protected function row_attempt_id(int $userid): int {
-        global $DB;
-        return (int) $DB->get_field(
-            'quiz_attempts',
-            'id',
-            ['quiz' => $this->quiz->id, 'userid' => $userid, 'preview' => 0],
-            IGNORE_MULTIPLE
-        );
-    }
 
     public function test_exceeding_the_time_limit_is_reported_as_overrun(): void {
         $this->setAdminUser();
@@ -386,7 +172,7 @@ final class progress_provider_test extends \advanced_testcase {
         $user = $this->create_student();
         // Start but answer nothing, then submit: every question ends up "gaveup".
         $this->start_attempt($user, 0, time() - 600);
-        quiz_attempt::create($this->row_attempt_id($user->id))->process_finish(time() - 60, false);
+        quiz_attempt::create($this->attempt_id_of($user->id))->process_finish(time() - 60, false);
 
         $row = $this->row_for($this->snapshot(), $user->id);
 
@@ -402,7 +188,7 @@ final class progress_provider_test extends \advanced_testcase {
 
         // First attempt: everything answered, then submitted.
         $this->start_attempt($user, 4, time() - 3600);
-        quiz_attempt::create($this->row_attempt_id($user->id))->process_finish(time() - 3000, false);
+        quiz_attempt::create($this->attempt_id_of($user->id))->process_finish(time() - 3000, false);
 
         // Second attempt: only one answer so far, still in progress.
         $second = $this->start_attempt($user, 1, time() - 300, 2);
@@ -446,7 +232,7 @@ final class progress_provider_test extends \advanced_testcase {
         $this->set_last_activity($this->start_attempt($active, 3, time() - 300), time() - 5);
         $this->set_last_activity($this->start_attempt($idle, 1, time() - 900), time() - 600);
         $this->start_attempt($finished, 4, time() - 1200);
-        quiz_attempt::create($this->row_attempt_id($finished->id))->process_finish(time() - 120, false);
+        quiz_attempt::create($this->attempt_id_of($finished->id))->process_finish(time() - 120, false);
         $this->set_last_activity($this->start_attempt($overrun, 2, time() - 3600), time() - 1500);
 
         $data = $this->snapshot();
