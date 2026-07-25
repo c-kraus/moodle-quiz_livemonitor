@@ -38,15 +38,22 @@ Plus summary tiles (active now / in progress / submitted / time overrun / not st
 This plugin is installed at `mod/quiz/report/livemonitor/` inside a Moodle codebase.
 The repository root **is** the plugin (files like `version.php` live at the top level).
 
-For local development with [`moodle-docker`](https://github.com/moodlehq/moodle-docker),
-mount/symlink this repository into the Moodle tree:
+Clone this repository straight to its final location inside the Moodle tree:
 
 ```bash
-ln -s /path/to/moodle-quiz_livemonitor \
-      /path/to/moodle/mod/quiz/report/livemonitor
+git clone https://github.com/c-kraus/moodle-quiz_livemonitor.git \
+    /path/to/moodle/mod/quiz/report/livemonitor
 ```
 
 Then visit **Site administration → Notifications** to complete installation.
+
+Do **not** symlink the repository in from outside the Moodle directory when using
+[`moodle-docker`](https://github.com/moodlehq/moodle-docker): only the Moodle directory is
+bind-mounted into the container, so such a symlink does not resolve there and the plugin
+stays invisible to Moodle.
+
+[`TESTING.md`](TESTING.md) is a verified end-to-end walkthrough — container setup, a seed
+script that creates participants in every status the report shows, and a test checklist.
 
 Regenerate the AMD build after editing `amd/src/monitor.js`:
 
@@ -81,8 +88,13 @@ Site administration → Plugins → Activity modules → Quiz → Live monitor:
 
 All data is derived from tables `mod_quiz` already populates (`quiz_attempts`, `quiz_slots`,
 `question_attempts`, `question_attempt_steps`). "Answered" is approximated as: the latest
-step of a question attempt is in a state other than `todo`. Verify this proxy against your
-question types (especially multi-part / cloze) on a realistic quiz.
+step of a question attempt is in a state other than `todo` (never touched) or `gaveup` (left
+blank on a submitted attempt).
+
+Verified on Moodle 4.5 against single-answer and two-of-four multi-response questions,
+including that a blank submission counts as 0 answered rather than as complete. The proxy is
+still worth re-checking against your own question types, especially cloze and other
+multi-part questions, on a realistic quiz.
 
 ## License
 

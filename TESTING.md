@@ -1,0 +1,172 @@
+# Testing quiz_livemonitor locally
+
+A verified walkthrough for bringing this plugin up in a throwaway Moodle on your
+own machine. Every command below was run end to end against **Moodle 4.5.12+,
+PHP 8.3, PostgreSQL 16** on macOS with OrbStack providing the Docker engine.
+
+Docker Desktop works identically — `moodle-docker` only needs a Docker engine and
+`docker compose`.
+
+## 1. Prerequisites
+
+- A Docker engine (Docker Desktop or OrbStack) with ~4–8 GB of RAM available
+- Git
+
+## 2. Lay out the workspace
+
+```bash
+mkdir moodle-livemonitor-dev && cd moodle-livemonitor-dev
+git clone --depth 1 https://github.com/moodlehq/moodle-docker.git
+git clone --branch MOODLE_405_STABLE --depth 1 https://github.com/moodle/moodle.git
+```
+
+**Clone the plugin to its final location inside the Moodle tree, do not symlink
+it from outside.** `moodle-docker` bind-mounts only the Moodle directory into the
+container, so a symlink pointing anywhere outside that directory does not resolve
+inside the container and the plugin is invisible to Moodle:
+
+```bash
+git clone https://github.com/c-kraus/moodle-quiz_livemonitor.git \
+    moodle/mod/quiz/report/livemonitor
+
+# Keep the core checkout from reporting the plugin as untracked.
+echo "/mod/quiz/report/livemonitor/" >> moodle/.git/info/exclude
+```
+
+Pick the branch that matches the target site once you know the RZ's version
+(`MOODLE_500_STABLE` for Moodle 5.0, and so on).
+
+## 3. Configure and start
+
+`moodle-docker` defaults to port 8000. Choose another one if something already
+listens there — OrbStack itself binds 8000, which is why this guide uses 8040.
+
+```bash
+cat > env.sh <<'EOF'
+WS="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+export MOODLE_DOCKER_WWWROOT="$WS/moodle"
+export MOODLE_DOCKER_DB=pgsql
+export MOODLE_DOCKER_WEB_PORT=8040
+export MOODLE_DOCKER_PHP_VERSION=8.3
+EOF
+
+cd moodle-docker
+source ../env.sh
+cp config.docker-template.php "$MOODLE_DOCKER_WWWROOT/config.php"
+bin/moodle-docker-compose up -d
+bin/moodle-docker-wait-for-db
+```
+
+Install the database from the CLI — quicker and more repeatable than the web
+installer. The password is a local throwaway:
+
+```bash
+bin/moodle-docker-compose exec webserver php admin/cli/install_database.php \
+  --agree-license --fullname="Livemonitor Test" --shortname="LMTEST" \
+  --adminuser=admin --adminpass="Dev#Local1234" \
+  --adminemail=admin@example.invalid
+```
+
+## 4. Composer dependencies (needed for the seed script and PHPUnit)
+
+The `moodlehq/moodle-php-apache` image ships no Composer, and Moodle's `vendor/`
+is not part of the git checkout. The test-data generators live behind the PHPUnit
+base classes, so they need it:
+
+```bash
+bin/moodle-docker-compose exec webserver sh -c \
+  'php -r "copy(\"https://getcomposer.org/composer-stable.phar\", \"/usr/local/bin/composer\");" \
+   && chmod +x /usr/local/bin/composer'
+bin/moodle-docker-compose exec webserver composer install --no-interaction
+```
+
+## 5. Seed participants in every status
+
+```bash
+bin/moodle-docker-compose exec webserver \
+  php mod/quiz/report/livemonitor/tests/fixtures/seed_testdata.php
+```
+
+This creates a course, a quiz with a 30 minute limit and four questions (one of
+them a two-of-four multi-response question, so the answered-question heuristic is
+exercised against a multi-part question), plus:
+
+| User      | Expected status | Progress |
+|-----------|-----------------|----------|
+| `stud1`   | Active          | 3 / 4    |
+| `stud2`   | Idle            | 1 / 4    |
+| `stud3`   | Submitted       | 4 / 4    |
+| `stud4`   | Time overrun    | 2 / 4    |
+| `stud5`   | Not started     | 0 / 4    |
+
+Teacher `dozentin`, all users password `Dev#Local1234`. The script prints the
+report URL and is repeatable — re-running deletes the previous course and users.
+
+**"Active" ages out.** It means server-side activity within the *Active window*
+setting (default 60s), so `stud1` turns Idle a minute after seeding. Re-run the
+script, or bump `timemodified`, to see it again:
+
+```sql
+UPDATE m_quiz_attempts SET timemodified = extract(epoch from now())::int
+ WHERE userid = (SELECT id FROM m_user WHERE username = 'stud1');
+```
+
+(`m_` is the table prefix `config.docker-template.php` sets, not Moodle's usual
+`mdl_`.)
+
+## 6. Checklist
+
+Log in as `dozentin` and open the report from *Quiz → Results → Live monitor*.
+
+- [ ] The report appears in the Results navigation and in the report dropdown
+- [ ] All five participants are listed, sorted by name, with the statuses above
+- [ ] Progress bars and `X / N` labels match the table above
+- [ ] Elapsed and remaining time are plausible; `stud4` shows "over by …" and its
+      row is highlighted
+- [ ] Summary tiles read 1 active / 3 in progress / 1 submitted / 1 overrun /
+      1 not started / 5 participants
+- [ ] The table refreshes on its own at the configured interval, with no page
+      reload and no console errors
+- [ ] *Pause auto-refresh* stops it; *Resume* restarts it and refreshes at once
+- [ ] *Refresh now* updates immediately
+- [ ] No developer debugging notices anywhere on the page
+- [ ] A student (`stud1`) opening the report URL directly is refused
+- [ ] Adjusting both settings under *Site administration → Plugins → Activity
+      modules → Quiz → Live monitor* takes effect
+
+Auto-refresh is deliberately skipped while the tab is in the background
+(`document.hidden`), so verify it in a focused window — a headless or background
+tab will look as though polling is broken.
+
+## 7. Static analysis
+
+```bash
+bin/moodle-docker-compose exec webserver sh -c \
+  'mkdir -p /tmp/mcs && cd /tmp/mcs \
+   && composer config --no-plugins allow-plugins.dealerdirect/phpcodesniffer-composer-installer true \
+   && composer require moodlehq/moodle-cs --no-interaction'
+
+bin/moodle-docker-compose exec webserver \
+  /tmp/mcs/vendor/bin/phpcs --standard=moodle --extensions=php \
+  mod/quiz/report/livemonitor
+```
+
+The PHP files are expected to report zero errors. The remaining warnings are the
+AMOS alphabetical ordering of the language string keys, which is deliberate: they
+are grouped by purpose with explanatory comments.
+
+## 8. Rebuilding the AMD module
+
+After editing `amd/src/monitor.js`:
+
+```bash
+bin/moodle-docker-compose exec webserver \
+  npx grunt amd --root=mod/quiz/report/livemonitor
+```
+
+## 9. Tear down
+
+```bash
+cd moodle-docker && source ../env.sh
+bin/moodle-docker-compose down -v   # -v also drops the database volume
+```
