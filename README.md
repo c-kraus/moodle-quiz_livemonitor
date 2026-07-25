@@ -58,15 +58,24 @@ its place in a Moodle codebase is:
 
 ### From a ZIP (how a computing centre will usually do it)
 
-**Site administration → Plugins → Install plugins**, upload the ZIP, and choose plugin type
-**Quiz report (quizreport)**. Moodle unpacks it to the right place and runs the upgrade. The
-ZIP contains a single top-level `livemonitor/` directory, which is what the installer expects.
+**Site administration → Plugins → Install plugins**, upload the ZIP, and pick the plugin type
+**Quiz → Report** — internally `quiz`, since `mod/quiz/db/subplugins.json` maps the type name
+`quiz` to `mod/quiz/report`. Do not pick `quizaccess`, and note the type is not called
+"quizreport": Moodle's ZIP validator derives the expected type from the component name
+`quiz_livemonitor` and rejects the upload if the selected type disagrees.
+
+Moodle then unpacks the archive to the right place and runs the upgrade. The ZIP contains a
+single top-level `livemonitor/` directory, which is what the installer expects.
 
 To build one from a checkout:
 
 ```bash
 git archive --format=zip --prefix=livemonitor/ -o moodle-quiz_livemonitor.zip HEAD
 ```
+
+The result passes Moodle's own `core\update\validator` — the check the upload form applies —
+with no errors, reporting `componentmatch quiz_livemonitor`. Its two warnings are expected:
+`maturity MATURITY_ALPHA`, and `targetexists` if the plugin is already present.
 
 ### From git (development)
 
