@@ -28,7 +28,6 @@ namespace quiz_livemonitor\local;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class progress_provider {
-
     /**
      * Build the full snapshot (summary counters + one row per eligible participant).
      *
@@ -64,7 +63,7 @@ class progress_provider {
         }
 
         // Answered-question counts, resolved for every attempt in a single aggregate query.
-        $answeredbyusage = self::count_answered(array_map(static function($a) {
+        $answeredbyusage = self::count_answered(array_map(static function ($a) {
             return $a->uniqueid;
         }, $latest));
 
@@ -81,8 +80,16 @@ class progress_provider {
         foreach ($users as $user) {
             $summary['total']++;
             $attempt = $latest[$user->id] ?? null;
-            $row = self::build_row($quiz, $user, $attempt, $total, $now, $activewindow,
-                $answeredbyusage, $viewfullnames);
+            $row = self::build_row(
+                $quiz,
+                $user,
+                $attempt,
+                $total,
+                $now,
+                $activewindow,
+                $answeredbyusage,
+                $viewfullnames
+            );
 
             if ($row['statuskey'] === 'notstarted') {
                 $summary['notstarted']++;
@@ -103,7 +110,7 @@ class progress_provider {
         }
 
         // Sort by displayed name for a stable, scannable list.
-        usort($rows, static function($a, $b) {
+        usort($rows, static function ($a, $b) {
             return strcasecmp($a['fullname'], $b['fullname']);
         });
 
@@ -137,8 +144,8 @@ class progress_provider {
             return [];
         }
 
-        list($insql, $params) = $DB->get_in_or_equal($usageids, SQL_PARAMS_NAMED, 'uid');
-        list($notinsql, $notinparams) = $DB->get_in_or_equal(['todo', 'gaveup'], SQL_PARAMS_NAMED, 'st', false);
+        [$insql, $params] = $DB->get_in_or_equal($usageids, SQL_PARAMS_NAMED, 'uid');
+        [$notinsql, $notinparams] = $DB->get_in_or_equal(['todo', 'gaveup'], SQL_PARAMS_NAMED, 'st', false);
         $params += $notinparams;
 
         $sql = "SELECT qa.questionusageid AS usageid, COUNT(1) AS answered
@@ -168,8 +175,16 @@ class progress_provider {
      * @param bool $viewfullnames whether full names may be shown.
      * @return array a single template-ready row.
      */
-    protected static function build_row($quiz, $user, $attempt, int $total, int $now,
-            int $activewindow, array $answeredbyusage, bool $viewfullnames): array {
+    protected static function build_row(
+        $quiz,
+        $user,
+        $attempt,
+        int $total,
+        int $now,
+        int $activewindow,
+        array $answeredbyusage,
+        bool $viewfullnames
+    ): array {
 
         $fullname = fullname($user, $viewfullnames);
 

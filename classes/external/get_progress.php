@@ -33,7 +33,6 @@ use quiz_livemonitor\local\progress_provider;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class get_progress extends external_api {
-
     /**
      * Parameters.
      *

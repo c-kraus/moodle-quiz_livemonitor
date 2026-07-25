@@ -29,7 +29,6 @@ use templatable;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class monitor_table implements renderable, templatable {
-
     /** @var \stdClass the quiz record. */
     protected $quiz;
 

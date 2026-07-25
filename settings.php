@@ -25,7 +25,6 @@
 defined('MOODLE_INTERNAL') || die();
 
 if ($ADMIN->fulltree) {
-
     // How often (seconds) the teacher's browser polls for a fresh snapshot.
     $settings->add(new admin_setting_configtext(
         'quiz_livemonitor/refreshinterval',
