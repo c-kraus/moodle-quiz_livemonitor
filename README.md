@@ -186,4 +186,12 @@ decision rather than an accident.
 
 ## License
 
-GNU GPL v3 or later.
+Copyright © 2026 Christian Kraus.
+
+GNU General Public License, version 3 or later — full text in [`LICENSE`](LICENSE).
+
+This is not a free choice: the plugin extends Moodle core classes
+(`mod_quiz\local\reports\report_base`, `core_external\external_api`) and is therefore a
+derivative work of Moodle, which is GPLv3. GPLv3-or-later is also what
+[moodle.org/plugins](https://moodle.org/plugins/) requires, along with the licence header that
+every source file here carries.
