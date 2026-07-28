@@ -130,10 +130,15 @@ Points a reviewer usually asks about:
 - **`maturity` is `MATURITY_ALPHA`** deliberately: the plugin has been tested thoroughly but
   has not yet run in a real exam.
 
-## Capabilities
+## Capabilities and groups
 
 - `quiz/livemonitor:view` — granted to `teacher`, `editingteacher`, `manager` by default;
   clones from `mod/quiz:viewreports`.
+- **Separate groups are honoured.** With the activity in separate-groups mode, a viewer
+  without `moodle/site:accessallgroups` sees only their own group; belonging to no group
+  yields an empty report rather than the whole cohort. Visible groups and no-groups mode show
+  everyone. The rule is applied inside `progress_provider::get_data()` rather than in the
+  callers, so the page and the polling web service cannot diverge.
 
 ## Settings
 

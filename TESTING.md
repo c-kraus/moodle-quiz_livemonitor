@@ -9,9 +9,9 @@ works identically — `moodle-docker` only needs a Docker engine and
 
 | Axis | Result |
 |------|--------|
-| Moodle 4.5.12+ (LTS) / PHP 8.3 / PostgreSQL 16 | 41 PHPUnit tests pass; report verified in the browser |
-| Moodle 4.5.12+ (LTS) / PHP 8.3 / MariaDB 10.11 | 41 PHPUnit tests pass; report verified in the browser with 205 participants |
-| Moodle 5.2.1+ / PHP 8.3 / MariaDB 10.11 | 41 PHPUnit tests pass with no deprecations or notices; report verified in the browser |
+| Moodle 4.5.12+ (LTS) / PHP 8.3 / PostgreSQL 16 | 44 PHPUnit tests pass; report verified in the browser |
+| Moodle 4.5.12+ (LTS) / PHP 8.3 / MariaDB 10.11 | 44 PHPUnit tests pass; report verified in the browser with 205 participants |
+| Moodle 5.2.1+ / PHP 8.3 / MariaDB 10.11 | 44 PHPUnit tests pass with no deprecations or notices; report verified in the browser |
 | PHP syntax range | `phpcs --standard=PHPCompatibility --runtime-set testVersion 7.4-` reports nothing |
 | Moodle coding style | `phpcs --standard=moodle` reports zero errors |
 | Snapshot cost, 205 participants, MariaDB | 16.6 ms in 5 queries; `count_answered` 1.7 ms; full page 0.23 s |
@@ -181,18 +181,18 @@ bin/moodle-docker-compose exec webserver vendor/bin/phpunit \
   --testsuite quiz_livemonitor_testsuite
 ```
 
-41 tests, 169 assertions. After adding or moving a test file, re-register the
+44 tests, 174 assertions. After adding or moving a test file, re-register the
 suite or PHPUnit reports "No tests executed":
 
 ```bash
 bin/moodle-docker-compose exec webserver php admin/tool/phpunit/cli/util.php --buildconfig
 ```
 
-`tests/local/progress_provider_test.php` (23) covers the snapshot itself: every
+`tests/local/progress_provider_test.php` (26) covers the snapshot itself: every
 status, the answered-question counter (including a multi-response question and a
 blank submission), the summary counters, the latest-attempt and preview rules,
 sorting, the time-limit and close-date deadlines, that supervisors are not listed
-as participants, that the snapshot writes nothing, and that its query count does
+as participants, that separate groups confine the snapshot to the viewer's own group, that the snapshot writes nothing, and that its query count does
 not grow with the cohort.
 
 `tests/external/get_progress_test.php` (18) covers the web service the teacher's
@@ -237,7 +237,7 @@ bin/moodle-docker-compose exec webserver php admin/tool/phpunit/cli/init.php
 bin/moodle-docker-compose exec webserver vendor/bin/phpunit --testsuite quiz_livemonitor_testsuite
 ```
 
-On MariaDB 10.11 all 41 tests pass and the correlated subquery costs 1.7 ms for
+On MariaDB 10.11 all 44 tests pass and the correlated subquery costs 1.7 ms for
 164 attempts, so the concern did not materialise. Re-run `init.php` after any
 change to `version.php`, or PHPUnit refuses to start.
 

@@ -28,6 +28,9 @@ namespace quiz_livemonitor\local;
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 class progress_provider {
+    /** @var int sentinel: separate groups apply and the viewer belongs to none of them. */
+    protected const NO_GROUP_ACCESS = -1;
+
     /**
      * Build the full snapshot (summary counters + one row per eligible participant).
      *
@@ -43,8 +46,16 @@ class progress_provider {
         $now = time();
         $viewfullnames = has_capability('moodle/site:viewfullnames', $context);
 
+        // Separate groups must be honoured here, not left to the caller: an invigilator
+        // restricted to their own group may not see who else is sitting the exam, and both
+        // the page and the polling web service reach this method.
+        $groupid = self::resolve_group($cm, $context);
+        if ($groupid === self::NO_GROUP_ACCESS) {
+            return self::empty_snapshot($cm, $now);
+        }
+
         // Eligible participants: enrolled users who can actually attempt the quiz.
-        $users = get_enrolled_users($context, 'mod/quiz:attempt', 0, 'u.*', null, 0, 0, true);
+        $users = get_enrolled_users($context, 'mod/quiz:attempt', $groupid, 'u.*', null, 0, 0, true);
 
         // Total number of question slots in the quiz.
         $total = (int) $DB->count_records('quiz_slots', ['quizid' => $quiz->id]);
@@ -121,6 +132,56 @@ class progress_provider {
             'hasrows'        => !empty($rows),
             'summary'        => array_map('intval', $summary),
             'rows'           => array_values($rows),
+        ];
+    }
+
+    /**
+     * Work out which group the snapshot may cover.
+     *
+     * Mirrors what mod_quiz\local\reports\report_base::get_current_group() decides, but is
+     * applied here so every entry point is covered by construction.
+     *
+     * @param \stdClass|\cm_info $cm the course module.
+     * @param \context $context the module context.
+     * @return int 0 for "all participants", a group id to restrict to, or NO_GROUP_ACCESS.
+     */
+    protected static function resolve_group($cm, \context $context): int {
+        if (groups_get_activity_groupmode($cm) != SEPARATEGROUPS) {
+            return 0;
+        }
+        if (has_capability('moodle/site:accessallgroups', $context)) {
+            return 0;
+        }
+        // Restricted to separate groups: only the viewer's own current group is visible.
+        $groupid = (int) groups_get_activity_group($cm, true);
+        return $groupid > 0 ? $groupid : self::NO_GROUP_ACCESS;
+    }
+
+    /**
+     * A well-formed snapshot with no participants.
+     *
+     * Used when separate groups apply and the viewer belongs to no group, so the payload
+     * still satisfies the web service's declared structure.
+     *
+     * @param \stdClass|\cm_info $cm the course module.
+     * @param int $now current unix time.
+     * @return array
+     */
+    protected static function empty_snapshot($cm, int $now): array {
+        return [
+            'cmid'           => (int) $cm->id,
+            'generatedat'    => $now,
+            'generatedatstr' => userdate($now, get_string('strftimetime', 'langconfig')),
+            'hasrows'        => false,
+            'summary'        => [
+                'total'      => 0,
+                'active'     => 0,
+                'inprogress' => 0,
+                'finished'   => 0,
+                'overrun'    => 0,
+                'notstarted' => 0,
+            ],
+            'rows'           => [],
         ];
     }
 

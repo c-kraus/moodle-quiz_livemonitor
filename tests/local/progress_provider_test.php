@@ -333,6 +333,97 @@ final class progress_provider_test extends \advanced_testcase {
         $this->assertFalse($row['isoverrun']);
     }
 
+    /**
+     * Separate groups: an invigilator must not see who else is sitting the exam.
+     *
+     * With separate groups a teacher without moodle/site:accessallgroups is confined to
+     * their own group. Showing the whole cohort would disclose the names and the exam
+     * progress of students they are not supervising.
+     */
+    public function test_separate_groups_confine_the_snapshot_to_the_viewers_group(): void {
+        global $DB;
+        $this->setAdminUser();
+        $this->create_quiz();
+
+        $mine = $this->create_student('Meine', 'Gruppe');
+        $theirs = $this->create_student('Fremde', 'Gruppe');
+        $teacher = $this->create_teacher('teacher');
+
+        $groupa = $this->getDataGenerator()->create_group(['courseid' => $this->course->id]);
+        $groupb = $this->getDataGenerator()->create_group(['courseid' => $this->course->id]);
+        $this->getDataGenerator()->create_group_member(['groupid' => $groupa->id, 'userid' => $mine->id]);
+        $this->getDataGenerator()->create_group_member(['groupid' => $groupa->id, 'userid' => $teacher->id]);
+        $this->getDataGenerator()->create_group_member(['groupid' => $groupb->id, 'userid' => $theirs->id]);
+
+        $DB->set_field('course_modules', 'groupmode', SEPARATEGROUPS, ['id' => $this->cm->id]);
+        $this->cm = get_coursemodule_from_instance('quiz', $this->quiz->id);
+
+        $this->start_attempt($mine, 2, time() - 300);
+        $this->start_attempt($theirs, 3, time() - 300);
+
+        $this->setUser($teacher);
+        $data = $this->snapshot();
+
+        $userids = array_column($data['rows'], 'userid');
+        $this->assertContains((int) $mine->id, $userids);
+        $this->assertNotContains(
+            (int) $theirs->id,
+            $userids,
+            'a participant from another group must not appear in the snapshot'
+        );
+        $this->assertSame(1, $data['summary']['total']);
+    }
+
+    /**
+     * The same restriction must not fire for someone allowed to see every group.
+     */
+    public function test_accessallgroups_still_sees_every_group(): void {
+        global $DB;
+        $this->setAdminUser();
+        $this->create_quiz();
+
+        $one = $this->create_student('Gruppe', 'Eins');
+        $two = $this->create_student('Gruppe', 'Zwei');
+        $groupa = $this->getDataGenerator()->create_group(['courseid' => $this->course->id]);
+        $groupb = $this->getDataGenerator()->create_group(['courseid' => $this->course->id]);
+        $this->getDataGenerator()->create_group_member(['groupid' => $groupa->id, 'userid' => $one->id]);
+        $this->getDataGenerator()->create_group_member(['groupid' => $groupb->id, 'userid' => $two->id]);
+
+        $DB->set_field('course_modules', 'groupmode', SEPARATEGROUPS, ['id' => $this->cm->id]);
+        $this->cm = get_coursemodule_from_instance('quiz', $this->quiz->id);
+
+        // An editing teacher has moodle/site:accessallgroups by default.
+        $this->setUser($this->create_teacher('editingteacher'));
+        $data = $this->snapshot();
+
+        $this->assertSame(2, $data['summary']['total']);
+    }
+
+    /**
+     * Visible groups are a display grouping, not an access restriction.
+     */
+    public function test_visible_groups_do_not_restrict_the_snapshot(): void {
+        global $DB;
+        $this->setAdminUser();
+        $this->create_quiz();
+
+        $one = $this->create_student('Sichtbar', 'Eins');
+        $two = $this->create_student('Sichtbar', 'Zwei');
+        $teacher = $this->create_teacher('teacher');
+        $groupa = $this->getDataGenerator()->create_group(['courseid' => $this->course->id]);
+        $groupb = $this->getDataGenerator()->create_group(['courseid' => $this->course->id]);
+        $this->getDataGenerator()->create_group_member(['groupid' => $groupa->id, 'userid' => $one->id]);
+        $this->getDataGenerator()->create_group_member(['groupid' => $groupa->id, 'userid' => $teacher->id]);
+        $this->getDataGenerator()->create_group_member(['groupid' => $groupb->id, 'userid' => $two->id]);
+
+        $DB->set_field('course_modules', 'groupmode', VISIBLEGROUPS, ['id' => $this->cm->id]);
+        $this->cm = get_coursemodule_from_instance('quiz', $this->quiz->id);
+
+        $this->setUser($teacher);
+
+        $this->assertSame(2, $this->snapshot()['summary']['total']);
+    }
+
     public function test_teachers_are_not_listed_as_participants(): void {
         $this->setAdminUser();
         $this->create_quiz();
