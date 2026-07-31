@@ -67,7 +67,6 @@ $string['noparticipants'] = 'Es sind noch keine Teilnehmenden für diesen Test b
 $string['pause'] = 'Auto-Aktualisierung pausieren';
 $string['resume'] = 'Auto-Aktualisierung fortsetzen';
 $string['refreshnow'] = 'Jetzt aktualisieren';
-$string['legend'] = 'Legende';
 $string['sebnote'] = 'Hinweis: „Aktiv" bezeichnet serverseitige Aktivität innerhalb der letzten Sekunden. Der Safe Exam Browser sperrt das Endgerät, meldet Moodle aber weder Fensterfokus noch Tastatureingaben.';
 
 // Einstellungen.

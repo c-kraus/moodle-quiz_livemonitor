@@ -67,7 +67,6 @@ $string['noparticipants'] = 'No participants are eligible to attempt this quiz y
 $string['pause'] = 'Pause auto-refresh';
 $string['resume'] = 'Resume auto-refresh';
 $string['refreshnow'] = 'Refresh now';
-$string['legend'] = 'Legend';
 $string['sebnote'] = 'Note: "active" means server-side activity within the last few seconds. The Safe Exam Browser locks the student device but does not report window focus or keystrokes to Moodle.';
 
 // Settings.
