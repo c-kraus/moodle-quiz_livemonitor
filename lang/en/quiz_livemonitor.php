@@ -73,7 +73,8 @@ $string['sebnote'] = 'Note: "active" means server-side activity within the last 
 $string['setting_refreshinterval'] = 'Auto-refresh interval (seconds)';
 $string['setting_refreshinterval_desc'] = 'How often the teacher\'s browser polls for a fresh snapshot. Only the teacher viewing the report polls; students are not affected.';
 $string['setting_activewindow'] = 'Active window (seconds)';
-$string['setting_activewindow_desc'] = 'An in-progress attempt counts as "active" when its last server-side activity is within this many seconds.';
+$string['setting_activewindow_desc'] = 'An in-progress attempt counts as "active" when its last server-side activity is within this many seconds. Keep this comfortably above the quiz autosave period (Site administration > Plugins > Activity modules > Quiz > Auto-save period), because that is the shortest interval at which the server hears from a student who is typing without changing page. Values that are too low are raised automatically.';
+$string['autosavedisabled'] = 'Quiz auto-save is switched off site-wide, so this report cannot see progress or activity until a student submits a page. On a quiz that shows every question on one page that means nothing appears until the attempt is submitted. Set a non-zero auto-save period under Site administration > Plugins > Activity modules > Quiz.';
 
 // Privacy.
 $string['privacy:metadata'] = 'The Live monitor plugin does not store any personal data. It only displays data already collected by the Quiz activity.';

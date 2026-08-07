@@ -44,7 +44,7 @@ class quiz_livemonitor_report extends \mod_quiz\local\reports\report_base {
      * @return bool
      */
     public function display($quiz, $cm, $course): bool {
-        global $PAGE;
+        global $PAGE, $OUTPUT;
 
         $context = context_module::instance($cm->id);
         require_capability('quiz/livemonitor:view', $context);
@@ -57,14 +57,25 @@ class quiz_livemonitor_report extends \mod_quiz\local\reports\report_base {
         // Standard quiz report header and navigation tabs.
         $this->print_header_and_tabs($cm, $course, $quiz, 'livemonitor');
 
-        $activewindow = (int) (get_config('quiz_livemonitor', 'activewindow') ?: 60);
+        // Without autosaves the server hears nothing between page submits, so on a quiz that
+        // shows every question on one page there is simply no data to report. Say so rather
+        // than showing a table that silently stays empty. Printed outside the polled region
+        // because it is static.
+        if (\quiz_livemonitor\local\settings::autosave_disabled()) {
+            echo $OUTPUT->notification(
+                get_string('autosavedisabled', 'quiz_livemonitor'),
+                \core\output\notification::NOTIFY_WARNING
+            );
+        }
+
+        $activewindow = \quiz_livemonitor\local\settings::active_window();
 
         $renderable = new \quiz_livemonitor\output\monitor_table($quiz, $cm, $context, $activewindow);
         /** @var \quiz_livemonitor\output\renderer $renderer */
         $renderer = $PAGE->get_renderer('quiz_livemonitor');
         echo $renderer->render($renderable);
 
-        $refresh = (int) (get_config('quiz_livemonitor', 'refreshinterval') ?: 20);
+        $refresh = \quiz_livemonitor\local\settings::refresh_interval();
         $PAGE->requires->js_call_amd('quiz_livemonitor/monitor', 'init', [(int) $cm->id, $refresh]);
 
         // No footer here: mod/quiz/report.php prints it after display() returns.

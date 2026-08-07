@@ -204,11 +204,25 @@ trait exam_fixture_trait {
             $DB->set_field('quiz_attempts', 'timemodified', $timestart + 60, ['id' => $attempt->id]);
         }
 
-        return $DB->get_record('quiz_attempts', ['id' => $attempt->id], '*', MUST_EXIST);
+        $attempt = $DB->get_record('quiz_attempts', ['id' => $attempt->id], '*', MUST_EXIST);
+
+        // Step 0 of every question carries the real clock, not $timestart. Backdate it too, or
+        // an attempt started "an hour ago" still looks like it was touched a moment ago.
+        $this->clamp_step_timestamps($attempt, (int) $attempt->timemodified);
+
+        return $attempt;
     }
 
     /**
      * Force an attempt's last-activity time.
+     *
+     * Backdating quiz_attempts alone is not enough: the provider also reads the question
+     * engine's step timestamps, and quiz_prepare_and_start_new_attempt() stamps step 0 of
+     * every question with the real clock. An attempt backdated by fifteen minutes would
+     * otherwise still carry steps created "just now" and read as active.
+     *
+     * The step timestamps are clamped rather than overwritten, so a deliberately placed
+     * autosave timestamp survives a later call.
      *
      * @param \stdClass $attempt the attempt record.
      * @param int $timemodified unix time to set.
@@ -217,6 +231,138 @@ trait exam_fixture_trait {
     protected function set_last_activity(\stdClass $attempt, int $timemodified): void {
         global $DB;
         $DB->set_field('quiz_attempts', 'timemodified', $timemodified, ['id' => $attempt->id]);
+        $this->clamp_step_timestamps($attempt, $timemodified);
+    }
+
+    /**
+     * Push every step timestamp of an attempt back to at most $timestamp.
+     *
+     * @param \stdClass $attempt the attempt record.
+     * @param int $timestamp the newest step timestamp to allow.
+     * @return void
+     */
+    protected function clamp_step_timestamps(\stdClass $attempt, int $timestamp): void {
+        global $DB;
+        $qaids = $DB->get_fieldset_select(
+            'question_attempts',
+            'id',
+            'questionusageid = ?',
+            [$attempt->uniqueid]
+        );
+        if (empty($qaids)) {
+            return;
+        }
+        [$insql, $params] = $DB->get_in_or_equal($qaids, SQL_PARAMS_NAMED, 'qa');
+        $DB->set_field_select(
+            'question_attempt_steps',
+            'timecreated',
+            $timestamp,
+            "timecreated > :newest AND questionattemptid {$insql}",
+            $params + ['newest' => $timestamp]
+        );
+    }
+
+    /**
+     * Autosave answers to the given slots without submitting anything.
+     *
+     * This reproduces what a student does on a quiz that shows every question on one page:
+     * they type, the browser autosaves in the background, and no page is ever submitted until
+     * the very end. quiz_attempt::process_auto_save() writes no quiz_attempts row at all, so
+     * this method deliberately leaves timemodified alone -- that is the whole point.
+     *
+     * Three traps, all of which fail silently:
+     *  - The ':sequencecheck' field is mandatory. Without it,
+     *    question_usage_by_activity::is_autosave_required() skips the slot without a word,
+     *    and the resulting test failure looks like a provider bug that is not there.
+     *  - Only autosave slots that are still unanswered, or post a different response:
+     *    question_behaviour_with_save::process_autosave() discards an unchanged answer.
+     *  - An autosaved step is stored with a negative sequencenumber, so anything that
+     *    selects MAX(sequencenumber) will never see it.
+     *
+     * @param \stdClass $attempt the attempt record.
+     * @param int[] $slots the slot numbers to autosave.
+     * @param int $timestamp unix time to record on the autosaved steps.
+     * @return void
+     */
+    protected function autosave_answers(\stdClass $attempt, array $slots, int $timestamp): void {
+        global $DB;
+
+        $quba = \question_engine::load_questions_usage_by_activity($attempt->uniqueid);
+
+        $postdata = ['slots' => implode(',', $slots)];
+        foreach ($slots as $slot) {
+            $questionattempt = $quba->get_question_attempt($slot);
+            $prefix = 'q' . $attempt->uniqueid . ':' . $slot . '_';
+            $postdata[$prefix . ':sequencecheck'] = $questionattempt->get_sequence_check_count();
+            foreach ($questionattempt->get_question()->get_correct_response() as $name => $value) {
+                $postdata[$prefix . $name] = $value;
+            }
+        }
+
+        $quba->process_all_autosaves($timestamp, $postdata);
+        \question_engine::save_questions_usage_by_activity($quba);
+
+        // Guard against the silent failures above: if no autosaved step was written, the test
+        // that follows would blame the provider for a fixture problem.
+        $qaids = $DB->get_fieldset_select(
+            'question_attempts',
+            'id',
+            'questionusageid = ?',
+            [$attempt->uniqueid]
+        );
+        [$insql, $params] = $DB->get_in_or_equal($qaids, SQL_PARAMS_NAMED, 'qa');
+        $this->assertGreaterThan(
+            0,
+            $DB->count_records_select(
+                'question_attempt_steps',
+                "sequencenumber < 0 AND questionattemptid {$insql}",
+                $params
+            ),
+            'the fixture produced no autosaved step -- check the :sequencecheck field'
+        );
+    }
+
+    /**
+     * Insert an autosaved step directly, bypassing the question engine.
+     *
+     * Stale autosaves -- ones later overtaken by real steps -- only arise from concurrent
+     * requests and cannot be produced through the API, because process_action() calls
+     * discard_autosaved_step() first. They have to be forged to be tested.
+     *
+     * No question_attempt_step_data row is needed: the provider reads sequencenumber, state
+     * and timecreated only. The (questionattemptid, sequencenumber) pair must stay unique.
+     *
+     * @param \stdClass $attempt the attempt record.
+     * @param int $slot the slot to attach the step to.
+     * @param string $state the question state to record, e.g. 'complete'.
+     * @param int $sequencenumber the (negative) sequence number.
+     * @param int $timecreated unix time to record.
+     * @return int the new step id.
+     */
+    protected function forge_autosave_step(
+        \stdClass $attempt,
+        int $slot,
+        string $state,
+        int $sequencenumber,
+        int $timecreated
+    ): int {
+        global $DB;
+
+        $questionattemptid = $DB->get_field(
+            'question_attempts',
+            'id',
+            ['questionusageid' => $attempt->uniqueid, 'slot' => $slot],
+            MUST_EXIST
+        );
+
+        return (int) $DB->insert_record('question_attempt_steps', (object) [
+            'questionattemptid' => $questionattemptid,
+            'sequencenumber' => $sequencenumber,
+            'state' => $state,
+            'fraction' => null,
+            'timecreated' => $timecreated,
+            'userid' => $DB->get_field('quiz_attempts', 'userid', ['id' => $attempt->id]),
+        ]);
     }
 
     /**

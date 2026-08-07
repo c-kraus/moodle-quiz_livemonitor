@@ -73,7 +73,8 @@ $string['sebnote'] = 'Hinweis: „Aktiv" bezeichnet serverseitige Aktivität inn
 $string['setting_refreshinterval'] = 'Aktualisierungs-Intervall (Sekunden)';
 $string['setting_refreshinterval_desc'] = 'Wie oft der Browser der/des Lehrenden einen neuen Snapshot abruft. Nur die aufrufende Lehrperson pollt; Studierende sind nicht betroffen.';
 $string['setting_activewindow'] = 'Aktiv-Zeitfenster (Sekunden)';
-$string['setting_activewindow_desc'] = 'Ein laufender Versuch gilt als „aktiv", wenn die letzte serverseitige Aktivität innerhalb dieser Sekundenzahl liegt.';
+$string['setting_activewindow_desc'] = 'Ein laufender Versuch gilt als „aktiv", wenn die letzte serverseitige Aktivität innerhalb dieser Sekundenzahl liegt. Der Wert sollte deutlich über dem Autosave-Intervall des Tests liegen (Website-Administration > Plugins > Aktivitäten > Test > Intervall für automatisches Speichern), denn kürzer meldet sich der Server bei jemandem, der ohne Seitenwechsel tippt, nicht. Zu kleine Werte werden automatisch angehoben.';
+$string['autosavedisabled'] = 'Das automatische Zwischenspeichern ist für Tests systemweit deaktiviert. Dieser Bericht kann Fortschritt und Aktivität deshalb erst sehen, wenn eine Seite abgesendet wird. Bei Tests mit allen Fragen auf einer Seite bedeutet das: nichts wird sichtbar, bevor der Versuch abgegeben ist. Abhilfe: Unter Website-Administration > Plugins > Aktivitäten > Test ein Intervall größer als 0 einstellen.';
 
 // Datenschutz.
 $string['privacy:metadata'] = 'Das Plugin „Live-Monitor" speichert keine personenbezogenen Daten. Es zeigt nur Daten an, die bereits von der Test-Aktivität erhoben werden.';

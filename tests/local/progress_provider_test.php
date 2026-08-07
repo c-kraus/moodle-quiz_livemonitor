@@ -424,6 +424,216 @@ final class progress_provider_test extends \advanced_testcase {
         $this->assertSame(2, $this->snapshot()['summary']['total']);
     }
 
+    /**
+     * A quiz that shows every question on one page must still report progress.
+     *
+     * Nothing is submitted until the very end there, so the only server-side trace is the
+     * browser's autosave. Those steps carry a negative sequencenumber, which any
+     * MAX(sequencenumber) lookup silently skips.
+     */
+    public function test_an_autosaved_answer_counts_as_answered(): void {
+        $this->setAdminUser();
+        $this->create_quiz();
+        $user = $this->create_student();
+        $attempt = $this->start_attempt($user, 0, time() - 300);
+
+        $this->autosave_answers($attempt, [1, 2], time() - 10);
+
+        $row = $this->row_for($this->snapshot(), $user->id);
+
+        $this->assertSame(2, $row['answered'], 'autosaved answers must count towards progress');
+        $this->assertSame(50, $row['progresspercent']);
+        $this->assertSame('2 / 4', $row['progresslabel']);
+    }
+
+    /**
+     * The core defect the invigilators reported: someone typing looks idle.
+     *
+     * quiz_attempt::process_auto_save() writes no quiz_attempts row at all, so an attempt whose
+     * student has been typing for a quarter of an hour still carries the timemodified of the
+     * page they last submitted -- the very first one.
+     */
+    public function test_an_autosave_keeps_an_attempt_active_without_any_submit(): void {
+        global $DB;
+        $this->setAdminUser();
+        $this->create_quiz();
+        $user = $this->create_student();
+        $attempt = $this->start_attempt($user, 0, time() - 900);
+        $this->set_last_activity($attempt, time() - 900);
+
+        $this->autosave_answers($attempt, [1], time() - 10);
+
+        $row = $this->row_for($this->snapshot(), $user->id);
+
+        $this->assertSame('active', $row['statuskey'], 'a student who is typing is not idle');
+        $this->assertTrue($row['isactive']);
+        $this->assertLessThanOrEqual(30, $row['lastactivityseconds']);
+
+        // Pin the cause in the test itself: the attempt row genuinely has not moved.
+        $this->assertLessThanOrEqual(
+            time() - 900,
+            (int) $DB->get_field('quiz_attempts', 'timemodified', ['id' => $attempt->id]),
+            'the fixture must not have touched quiz_attempts -- that is what makes this a bug'
+        );
+    }
+
+    /**
+     * Of several autosaved steps the most negative one is the live one, as core loads it.
+     */
+    public function test_the_most_negative_autosave_step_wins(): void {
+        $this->setAdminUser();
+        $this->create_quiz();
+        $user = $this->create_student();
+        $attempt = $this->start_attempt($user, 0, time() - 300);
+
+        // One real step (0, todo) plus two autosaves. Core keeps the most negative.
+        $this->forge_autosave_step($attempt, 1, 'complete', -2, time() - 10);
+        $this->forge_autosave_step($attempt, 1, 'todo', -1, time() - 20);
+
+        $row = $this->row_for($this->snapshot(), $user->id);
+
+        $this->assertSame(1, $row['answered'], 'the -2 step is the live one, not the -1 step');
+    }
+
+    /**
+     * Stale autosaves must be dropped, live ones must not -- both in the same snapshot.
+     *
+     * Slot 1 has been submitted for real, so its leftover autosave at -1 is overtaken and must
+     * be ignored. Slot 2 has only ever been autosaved, so its step at -1 is the live one. An
+     * implementation that keeps MAX(sequencenumber) fails on slot 2; one that blindly prefers
+     * any negative step fails on slot 1.
+     */
+    public function test_a_stale_autosave_step_is_ignored_but_a_valid_one_is_not(): void {
+        $this->setAdminUser();
+        $this->create_quiz();
+        $user = $this->create_student();
+
+        // Slot 1 answered for real -> steps 0 (todo) and 1 (complete).
+        $attempt = $this->start_attempt($user, 1, time() - 300);
+        // A leftover autosave from a concurrent request, already overtaken.
+        $this->forge_autosave_step($attempt, 1, 'todo', -1, time() - 200);
+        // Slot 2 only autosaved -> steps 0 (todo) and -1 (complete).
+        $this->autosave_answers($attempt, [2], time() - 10);
+
+        $row = $this->row_for($this->snapshot(), $user->id);
+
+        $this->assertSame(2, $row['answered'], 'slot 1 submitted, slot 2 autosaved -- both count');
+    }
+
+    /**
+     * Last activity is the newer of the attempt row and the question engine's steps.
+     */
+    public function test_last_activity_takes_the_newest_of_attempt_and_step_timestamps(): void {
+        $this->setAdminUser();
+        $this->create_quiz();
+
+        // (a) attempt row newer than the steps.
+        $recent = $this->create_student('Anna', 'Frisch');
+        $attempta = $this->start_attempt($recent, 1, time() - 900);
+        $this->set_last_activity($attempta, time() - 900);
+        $this->clamp_step_timestamps($attempta, time() - 900);
+        $GLOBALS['DB']->set_field('quiz_attempts', 'timemodified', time() - 5, ['id' => $attempta->id]);
+
+        // (b) steps newer than the attempt row -- the autosave case.
+        $typing = $this->create_student('Bernd', 'Tippt');
+        $attemptb = $this->start_attempt($typing, 0, time() - 900);
+        $this->set_last_activity($attemptb, time() - 900);
+        $this->autosave_answers($attemptb, [1], time() - 5);
+
+        $data = $this->snapshot();
+
+        $this->assertLessThanOrEqual(30, $this->row_for($data, $recent->id)['lastactivityseconds']);
+        $this->assertLessThanOrEqual(30, $this->row_for($data, $typing->id)['lastactivityseconds']);
+    }
+
+    /**
+     * A multi-response question that has been autosaved counts too.
+     */
+    public function test_an_autosaved_multi_response_answer_counts_as_answered(): void {
+        $this->setAdminUser();
+        $this->create_quiz();
+        $user = $this->create_student();
+        $attempt = $this->start_attempt($user, 0, time() - 300);
+
+        // Slot 3 is the two-of-four question.
+        $this->autosave_answers($attempt, [3], time() - 10);
+
+        $this->assertSame(1, $this->row_for($this->snapshot(), $user->id)['answered']);
+    }
+
+    /**
+     * A half-finished answer counts as begun, deliberately.
+     *
+     * deferredfeedback marks a gradable but incomplete response 'invalid'. For a progress bar
+     * during an exam that is "started", not "nothing there".
+     */
+    public function test_an_invalid_autosaved_answer_counts_as_begun(): void {
+        $this->setAdminUser();
+        $this->create_quiz();
+        $user = $this->create_student();
+        $attempt = $this->start_attempt($user, 0, time() - 300);
+
+        $this->forge_autosave_step($attempt, 1, 'invalid', -1, time() - 10);
+
+        $this->assertSame(1, $this->row_for($this->snapshot(), $user->id)['answered']);
+    }
+
+    /**
+     * The report deliberately disagrees with core reports while an attempt is running.
+     *
+     * Every core quiz report resolves the current state through
+     * question_engine_data_mapper::latest_step_for_qa_subquery(), which is a plain
+     * MAX(sequencenumber) and therefore cannot see an autosave. That is structural, not an
+     * oversight. This report looks at unsubmitted work on purpose, because that is the only
+     * thing worth watching during an exam. Once an attempt is submitted the autosaved step is
+     * discarded or promoted, and both views agree again.
+     */
+    public function test_the_report_deliberately_diverges_from_core_reports(): void {
+        global $DB;
+        $this->setAdminUser();
+        $this->create_quiz();
+        $user = $this->create_student();
+        $attempt = $this->start_attempt($user, 0, time() - 300);
+        $this->autosave_answers($attempt, [1, 2], time() - 10);
+
+        // What core's MAX(sequencenumber) approach would report.
+        $corecount = $DB->count_records_sql("
+                SELECT COUNT(1)
+                  FROM {question_attempts} qa
+                  JOIN {question_attempt_steps} qas ON qas.questionattemptid = qa.id
+                 WHERE qa.questionusageid = ?
+                   AND qas.sequencenumber = (
+                           SELECT MAX(qas2.sequencenumber)
+                             FROM {question_attempt_steps} qas2
+                            WHERE qas2.questionattemptid = qa.id)
+                   AND qas.state <> 'todo'", [$attempt->uniqueid]);
+
+        $this->assertSame(0, $corecount, 'core reports see nothing before a submit');
+        $this->assertSame(
+            2,
+            $this->row_for($this->snapshot(), $user->id)['answered'],
+            'this report sees the autosaved work -- that is the whole point'
+        );
+    }
+
+    /**
+     * Guard (green before the fix too): leftovers on a finished attempt change nothing.
+     */
+    public function test_a_finished_attempt_ignores_leftover_autosave_steps(): void {
+        $this->setAdminUser();
+        $this->create_quiz();
+        $user = $this->create_student();
+        $attempt = $this->start_attempt($user, 4, time() - 1200);
+        $this->finish_attempt((int) $user->id, time() - 120);
+        $this->forge_autosave_step($attempt, 1, 'todo', -1, time() - 5);
+
+        $row = $this->row_for($this->snapshot(), $user->id);
+
+        $this->assertSame('finished', $row['statuskey']);
+        $this->assertSame(4, $row['answered']);
+        $this->assertFalse($row['isactive'], 'a submitted attempt cannot be active');
+    }
+
     public function test_teachers_are_not_listed_as_participants(): void {
         $this->setAdminUser();
         $this->create_quiz();
@@ -490,7 +700,10 @@ final class progress_provider_test extends \advanced_testcase {
         $this->setAdminUser();
         $this->create_quiz();
         $user = $this->create_student();
-        $this->set_last_activity($this->start_attempt($user, 2, time() - 300), time() - 5);
+        $attempt = $this->start_attempt($user, 2, time() - 300);
+        $this->set_last_activity($attempt, time() - 5);
+        // Include an autosaved step: the derived table must stay read-only over those too.
+        $this->autosave_answers($attempt, [3], time() - 5);
 
         $before = [
             'attempts' => $DB->get_records('quiz_attempts', [], 'id'),
@@ -517,7 +730,9 @@ final class progress_provider_test extends \advanced_testcase {
         $this->create_quiz();
 
         for ($i = 0; $i < 3; $i++) {
-            $this->start_attempt($this->create_student('Small' . $i, 'Cohort'), 1, time() - 300);
+            $attempt = $this->start_attempt($this->create_student('Small' . $i, 'Cohort'), 1, time() - 300);
+            // Mixed states, so the derived table is exercised on both branches.
+            $this->autosave_answers($attempt, [2], time() - 20);
         }
 
         // Warm the language string and context caches so their one-off reads do
@@ -529,7 +744,8 @@ final class progress_provider_test extends \advanced_testcase {
         $smallcohort = $DB->perf_get_queries() - $before;
 
         for ($i = 0; $i < 20; $i++) {
-            $this->start_attempt($this->create_student('Large' . $i, 'Cohort'), 1, time() - 300);
+            $attempt = $this->start_attempt($this->create_student('Large' . $i, 'Cohort'), 1, time() - 300);
+            $this->autosave_answers($attempt, [2], time() - 20);
         }
 
         $before = $DB->perf_get_queries();
@@ -542,6 +758,15 @@ final class progress_provider_test extends \advanced_testcase {
             $largecohort,
             "the snapshot took {$smallcohort} queries for 3 participants but {$largecohort} for 23; "
             . 'something now queries per participant'
+        );
+        // A snapshot costs seven queries: the group mode, the group itself when separate
+        // groups apply, two for the enrolled users, the slot count, the attempts, and one
+        // aggregate for progress and activity. Growing that is a decision worth making on
+        // purpose, not by accident.
+        $this->assertLessThanOrEqual(
+            7,
+            $largecohort,
+            "a snapshot now costs {$largecohort} queries; the documented figure is 7"
         );
     }
 

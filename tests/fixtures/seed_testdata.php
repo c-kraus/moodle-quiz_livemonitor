@@ -19,8 +19,9 @@
  *
  * Creates a course, a quiz with four questions (one of them a two-of-four
  * multi-response question, to exercise the answered-question heuristic against
- * a multi-part question) and five students, one per status: active, idle,
- * submitted, time overrun, not started. Re-running replaces the previous run.
+ * a multi-part question) and seven students, one per case the report distinguishes:
+ * active, idle, submitted, time overrun, not started, submitted-awaiting-grading,
+ * and one who has only autosaved. Re-running replaces the previous run.
  *
  * NOT part of the plugin's runtime. Development instances only -- it creates
  * users with a known password. See TESTING.md.
@@ -86,6 +87,7 @@ $studentspecs = [
     ['David', 'Ueberzogen', 'overrun'],
     ['Eva', 'Nichtda', 'notstarted'],
     ['Frank', 'Abgegebenungewertet', 'submitted'],
+    ['Greta', 'Tippt', 'autosaved'],
 ];
 $usernames = ['dozentin'];
 foreach (array_keys($studentspecs) as $i) {
@@ -248,6 +250,27 @@ $DB->set_field('quiz_attempts', 'timemodified', $now - 1500, ['id' => $attempt->
 cli_writeln('David Ueberzogen -> inprogress, 2/4, started 60m ago         => time overrun');
 
 cli_writeln('Eva Nichtda      -> no attempt                               => not started');
+
+// Working on a single-page quiz: answers are autosaved but nothing is submitted, so
+// quiz_attempts.timemodified never moves. Reproduces the case the invigilators reported.
+$attempt = quiz_livemonitor_seed_attempt($quiz, $students['autosaved'], 0, $now - 600);
+$quba = question_engine::load_questions_usage_by_activity(
+    $DB->get_field('quiz_attempts', 'uniqueid', ['id' => $attempt->get_attemptid()])
+);
+$uniqueid = $DB->get_field('quiz_attempts', 'uniqueid', ['id' => $attempt->get_attemptid()]);
+$postdata = ['slots' => '1,2'];
+foreach ([1, 2] as $slot) {
+    $qa = $quba->get_question_attempt($slot);
+    $prefix = 'q' . $uniqueid . ':' . $slot . '_';
+    $postdata[$prefix . ':sequencecheck'] = $qa->get_sequence_check_count();
+    foreach ($qa->get_question()->get_correct_response() as $name => $value) {
+        $postdata[$prefix . $name] = $value;
+    }
+}
+$quba->process_all_autosaves($now - 5, $postdata);
+question_engine::save_questions_usage_by_activity($quba);
+// Deliberately not touching quiz_attempts.timemodified -- that is the point.
+cli_writeln('Greta Tippt      -> autosaved 2/4, nothing submitted         => active, 2/4');
 
 // Handed in but not yet graded: the state Moodle 5.0 introduced between
 // inprogress and finished. Written directly so the fixture also works on 4.x,

@@ -74,7 +74,7 @@ class progress_provider {
         }
 
         // Answered-question counts, resolved for every attempt in a single aggregate query.
-        $answeredbyusage = self::count_answered(array_map(static function ($a) {
+        $progressbyusage = self::load_usage_progress(array_map(static function ($a) {
             return $a->uniqueid;
         }, $latest));
 
@@ -98,7 +98,7 @@ class progress_provider {
                 $total,
                 $now,
                 $activewindow,
-                $answeredbyusage,
+                $progressbyusage,
                 $viewfullnames
             );
 
@@ -186,18 +186,37 @@ class progress_provider {
     }
 
     /**
-     * Count, per question usage, how many slots the student has answered.
+     * Per question usage: how many slots are answered, and when the student was last seen.
      *
-     * "Answered" is approximated as: the latest step of the question attempt is in a
-     * state other than "todo" (untouched) or "gaveup" (left blank on a finished attempt).
-     * The latest step is found with a correlated subquery, which uses the
-     * (questionattemptid, sequencenumber) index and only touches steps of the relevant
-     * usages, rather than aggregating the whole steps table.
+     * "Answered" means the current step of the question attempt is in a state other than
+     * "todo" (untouched) or "gaveup" (left blank on a submitted attempt). Half-finished work
+     * ends up in "invalid" and counts as started, which is what a progress bar should show.
+     *
+     * The subtlety is which step counts as current. On a quiz that puts every question on one
+     * page nothing is submitted until the end, and the only trace is the browser's autosave.
+     * The engine stores an autosaved step with a *negative* sequencenumber
+     * (question/engine/questionattempt.php:978-983), so the MAX(sequencenumber) that every core
+     * report uses (question/engine/datalib.php:1261-1267) can never select it.
+     *
+     * An autosave is live only while real steps have not overtaken it. Core expresses that as
+     * `-sequencenumber >= number of real steps` in its load loop
+     * (question/engine/questionattempt.php:1676); the arithmetic below is the portable
+     * equivalent. That rule appears in no public API -- without this reference the SQL is
+     * unreadable a year from now. Both branches are safe: step 0 always exists, so MAX over all
+     * rows is always the last real step, and MIN is only negative when an autosave exists.
+     *
+     * Stays portable across PostgreSQL and MariaDB: no FILTER clause, no GREATEST, no window
+     * functions, the derived table is aliased, and GROUP BY names every non-aggregated column
+     * for ONLY_FULL_GROUP_BY.
+     *
+     * Not filtered by user: a teacher's manual grading writes steps too and would push
+     * lastactivity forward. Harmless, because "active" additionally requires the attempt to be
+     * in progress, and grading only happens on attempts that are not.
      *
      * @param int[] $usageids question usage ids (quiz_attempts.uniqueid).
-     * @return array map of usageid => answered count.
+     * @return array map of usageid => object with answered and lastactivity.
      */
-    protected static function count_answered(array $usageids): array {
+    protected static function load_usage_progress(array $usageids): array {
         global $DB;
 
         $usageids = array_values(array_filter($usageids));
@@ -209,18 +228,41 @@ class progress_provider {
         [$notinsql, $notinparams] = $DB->get_in_or_equal(['todo', 'gaveup'], SQL_PARAMS_NAMED, 'st', false);
         $params += $notinparams;
 
-        $sql = "SELECT qa.questionusageid AS usageid, COUNT(1) AS answered
-                  FROM {question_attempts} qa
-                  JOIN {question_attempt_steps} qas ON qas.questionattemptid = qa.id
-                 WHERE qa.questionusageid $insql
-                   AND qas.sequencenumber = (
-                           SELECT MAX(qas2.sequencenumber)
-                             FROM {question_attempt_steps} qas2
-                            WHERE qas2.questionattemptid = qa.id)
-                   AND qas.state $notinsql
-              GROUP BY qa.questionusageid";
+        // The inner query picks, per question attempt, the step that is actually current --
+        // which is the autosaved one when a live autosave exists, and the last submitted step
+        // otherwise -- and the newest timestamp of any of its steps.
+        //
+        // Counting with SUM(CASE ...) rather than filtering in the WHERE clause is deliberate:
+        // a WHERE filter would drop question attempts with nothing answered out of the result
+        // entirely, and with them their timestamps. Those rows are exactly the ones this fix is
+        // about -- a student who has started typing but submitted nothing.
+        //
+        // MAX(timecreated) covers every step, stale autosaves included. Each one was written by
+        // a real request from the student, so it is a truthful lower bound on "last seen"; only
+        // the answer count needs the staleness rule.
+        $sql = "SELECT eff.usageid AS usageid,
+                       SUM(CASE WHEN cur.state $notinsql THEN 1 ELSE 0 END) AS answered,
+                       MAX(eff.lastactivity) AS lastactivity
+                  FROM (
+                        SELECT qa.id AS questionattemptid,
+                               qa.questionusageid AS usageid,
+                               MAX(qas.timecreated) AS lastactivity,
+                               CASE WHEN MIN(qas.sequencenumber)
+                                         + SUM(CASE WHEN qas.sequencenumber >= 0 THEN 1 ELSE 0 END) <= 0
+                                    THEN MIN(qas.sequencenumber)
+                                    ELSE MAX(qas.sequencenumber)
+                               END AS effectiveseq
+                          FROM {question_attempts} qa
+                          JOIN {question_attempt_steps} qas ON qas.questionattemptid = qa.id
+                         WHERE qa.questionusageid $insql
+                      GROUP BY qa.id, qa.questionusageid
+                       ) eff
+                  JOIN {question_attempt_steps} cur
+                    ON cur.questionattemptid = eff.questionattemptid
+                   AND cur.sequencenumber = eff.effectiveseq
+              GROUP BY eff.usageid";
 
-        return $DB->get_records_sql_menu($sql, $params);
+        return $DB->get_records_sql($sql, $params);
     }
 
     /**
@@ -232,7 +274,7 @@ class progress_provider {
      * @param int $total total number of question slots.
      * @param int $now current unix time.
      * @param int $activewindow "active" threshold in seconds.
-     * @param array $answeredbyusage map of usageid => answered count.
+     * @param array $progressbyusage map of usageid => object with answered and lastactivity.
      * @param bool $viewfullnames whether full names may be shown.
      * @return array a single template-ready row.
      */
@@ -243,7 +285,7 @@ class progress_provider {
         int $total,
         int $now,
         int $activewindow,
-        array $answeredbyusage,
+        array $progressbyusage,
         bool $viewfullnames
     ): array {
 
@@ -269,11 +311,17 @@ class progress_provider {
             ]);
         }
 
-        $answered = (int) ($answeredbyusage[$attempt->uniqueid] ?? 0);
-        $answered = min($answered, $total);
+        $progress = $progressbyusage[$attempt->uniqueid] ?? null;
+
+        // PostgreSQL returns SUM() as a string, hence the explicit casts.
+        $answered = min((int) ($progress->answered ?? 0), $total);
         $percent = $total > 0 ? (int) round($answered / $total * 100) : 0;
 
-        $sincemodified = $now - (int) $attempt->timemodified;
+        // The attempt row only moves when a page is submitted; the question engine's steps also
+        // move on autosave. Whichever is newer is when the student was last seen.
+        $lastactivity = max((int) $attempt->timemodified, (int) ($progress->lastactivity ?? 0));
+
+        $sincemodified = $now - $lastactivity;
         $state = $attempt->state;
         $isactive = ($state === 'inprogress') && ($sincemodified <= $activewindow);
 

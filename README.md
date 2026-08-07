@@ -27,7 +27,7 @@ Plus summary tiles (active now / in progress / submitted / time overrun / not st
 - **Requires Moodle 4.2 or later** (`$plugin->requires = 2023042400`). Primary target
   **4.4+ / 5.x**.
 - Verified end to end on **Moodle 4.5.12+ (LTS)** and **Moodle 5.2.1+**, with PHP 8.3,
-  against both **PostgreSQL 16** and **MariaDB 10.11**: 41 PHPUnit tests pass on every
+  against both **PostgreSQL 16** and **MariaDB 10.11**: 58 PHPUnit tests pass on every
   combination, and the report was checked in the browser on each. See
   [`TESTING.md`](TESTING.md).
 - **From Moodle 5.1 the plugin belongs under `public/`**: 5.1 moved the servable code there,
@@ -124,7 +124,7 @@ Points a reviewer usually asks about:
   and users with a known password. It is CLI-only and refuses to run unless developer
   debugging is enabled, so it cannot do anything on a production site. Delete it before
   deployment if that is your policy.
-- **Tests:** 41 PHPUnit tests, run with
+- **Tests:** 58 PHPUnit tests, run with
   `vendor/bin/phpunit --testsuite quiz_livemonitor_testsuite`. See [`TESTING.md`](TESTING.md)
   for what is covered and on which Moodle, PHP and database versions it has been verified.
 - **`maturity` is `MATURITY_ALPHA`** deliberately: the plugin has been tested thoroughly but
@@ -145,7 +145,21 @@ Points a reviewer usually asks about:
 Site administration → Plugins → Activity modules → Quiz → Live monitor:
 
 - **Auto-refresh interval** (seconds, default 20) — how often the teacher's browser polls.
-- **Active window** (seconds, default 60) — how recent activity must be to count as "active".
+- **Active window** (seconds, default 150) — how recent activity must be to count as "active".
+
+The active window cannot sensibly be shorter than the quiz module's auto-save period, which is
+the shortest interval at which the server hears from someone typing without changing page. The
+browser's auto-save is a debounce rather than a timer — changes made while one is pending do
+not restart it — so two writes are one period apart at best. A window that is too short makes
+the status flicker, and one that is too low is therefore raised at run time to
+`autosaveperiod + refresh interval + 30 s`. That floor also repairs sites installed before the
+default was raised, where the old 60 still sits in the database.
+
+| `quiz \| autosaveperiod` | Suggested active window |
+|---|---|
+| 60 s (Moodle default) | 150 s |
+| 30 s | 120 s |
+| 0 (auto-save off) | irrelevant — the report warns and can show nothing before submission |
 
 ## Data source
 
@@ -159,6 +173,30 @@ questions, including that a blank submission counts as 0 answered rather than as
 The proxy is still worth re-checking against your own question types, especially cloze and
 other multi-part questions, on a realistic quiz.
 
+### Unsubmitted answers are counted, unlike in core reports
+
+On a quiz that puts **every question on one page**, nothing reaches the server until the
+attempt is submitted — except the quiz module's background **auto-save**. This report reads
+those auto-saved answers, so progress and activity move while a student is still working.
+
+That is a deliberate departure from every core quiz report. Core resolves the current state
+through `latest_step_for_qa_subquery()`, which is a plain `MAX(sequencenumber)`, and an
+auto-saved step is stored with a *negative* sequence number — core cannot see it, structurally
+rather than by oversight. The difference exists **only while an attempt is running**: on
+submit the auto-saved step is discarded or promoted to a real one, after which both views
+agree exactly. Comparing this report's figures with the *Responses* report mid-exam will show
+a discrepancy, and that is correct.
+
+Three consequences worth knowing:
+
+- **Progress can go backwards.** Clearing an answer removes the auto-saved step, so the count
+  drops. Rare, correct, and surprising if unannounced.
+- **Answer, then think, and you read as idle.** Auto-save only fires when an answer *changes*.
+  Someone who answers everything early and then re-reads for twenty minutes produces no
+  server traffic at all.
+- **No auto-save, no data.** If `quiz | autosaveperiod` is 0 site-wide, none of this exists and
+  the report shows nothing until submission. It says so on the page when that is the case.
+
 ## Attempt states
 
 The report maps `mod_quiz` attempt states onto the statuses a supervisor cares about:
@@ -166,7 +204,7 @@ The report maps `mod_quiz` attempt states onto the statuses a supervisor cares a
 | Attempt state | Shown as | Note |
 |---------------|----------|------|
 | *no attempt*  | Not started | |
-| `inprogress`, recent server activity | Active | within the *Active window* setting |
+| `inprogress`, recent server activity | Active | within the *Active window* setting; includes auto-saves, see *Data source* |
 | `inprogress`, no recent activity | Idle | |
 | `inprogress` past its deadline, or `overdue` | Time overrun | |
 | `submitted` | Submitted | **Moodle 5.0+**: handed in, grading not yet run |
@@ -187,7 +225,7 @@ decision rather than an accident.
 
 ## Version
 
-`v0.2.0` (`$plugin->version = 2026072500`), maturity **alpha**. Requires Moodle 4.2 or later.
+`v0.3.0` (`$plugin->version = 2026080700`), maturity **alpha**. Requires Moodle 4.2 or later.
 
 ## License
 

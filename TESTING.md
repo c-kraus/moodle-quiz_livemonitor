@@ -9,13 +9,13 @@ works identically — `moodle-docker` only needs a Docker engine and
 
 | Axis | Result |
 |------|--------|
-| Moodle 4.5.12+ (LTS) / PHP 8.3 / PostgreSQL 16 | 44 PHPUnit tests pass; report verified in the browser |
-| Moodle 4.5.12+ (LTS) / PHP 8.3 / MariaDB 10.11 | 44 PHPUnit tests pass; report verified in the browser with 205 participants |
-| Moodle 5.2.1+ / PHP 8.3 / MariaDB 10.11 | 44 PHPUnit tests pass with no deprecations or notices; report verified in the browser |
+| Moodle 4.5.12+ (LTS) / PHP 8.3 / PostgreSQL 16 | 58 PHPUnit tests pass; report verified in the browser |
+| Moodle 4.5.12+ (LTS) / PHP 8.3 / MariaDB 10.11 | 58 PHPUnit tests pass; report verified in the browser with 205 participants |
+| Moodle 5.2.1+ / PHP 8.3 / MariaDB 10.11 | 58 PHPUnit tests pass with no deprecations or notices; report verified in the browser |
 | PHP syntax range | `phpcs --standard=PHPCompatibility --runtime-set testVersion 7.4-` reports nothing |
 | Moodle coding style | `phpcs --standard=moodle` reports zero errors |
-| Snapshot cost, 205 participants, MariaDB | 16.6 ms in 5 queries; `count_answered` 1.7 ms; full page 0.23 s |
-| Snapshot cost, 200 participants, PostgreSQL | 4–7 ms in 5 queries |
+| Snapshot cost, 207 participants, MariaDB 10.11 | 20 ms in 6-7 queries; the progress/activity query 1.6 ms |
+| Snapshot cost, 207 participants, PostgreSQL 16 | 19 ms in 6-7 queries; the progress/activity query 0.8 ms |
 
 ## Two Moodle 5 changes that matter here
 
@@ -128,6 +128,7 @@ exercised against a multi-part question), plus:
 | `stud4`   | Time overrun    | 2 / 4    | |
 | `stud5`   | Not started     | 0 / 4    | |
 | `stud6`   | Submitted       | 4 / 4    | state `submitted`, grading not yet run |
+| `stud7`   | Active          | 2 / 4    | autosaved only, nothing submitted |
 
 Teacher `dozentin`, all users password `Dev#Local1234`. The script prints the
 report URL and is repeatable — re-running deletes the previous course and users.
@@ -137,7 +138,8 @@ report URL and is repeatable — re-running deletes the previous course and user
 it.
 
 **"Active" ages out.** It means server-side activity within the *Active window*
-setting (default 60s), so `stud1` turns Idle a minute after seeding. Re-run the
+setting (default 150s, raised at run time when auto-save is slower), so `stud1`
+turns Idle a while after seeding. Re-run the
 script, or bump `timemodified`, to see it again:
 
 ```sql
@@ -153,13 +155,17 @@ UPDATE m_quiz_attempts SET timemodified = extract(epoch from now())::int
 Log in as `dozentin` and open the report from *Quiz → Results → Live monitor*.
 
 - [ ] The report appears in the Results navigation and in the report dropdown
-- [ ] All six participants are listed, sorted by name, with the statuses above
+- [ ] All seven participants are listed, sorted by name, with the statuses above
 - [ ] Progress bars and `X / N` labels match the table above
 - [ ] Elapsed and remaining time are plausible; `stud4` shows "over by …" and its
       row is highlighted
 - [ ] `stud6` reads **Submitted**, not Idle, and shows no remaining time
-- [ ] Summary tiles read 1 active / 3 in progress / 2 submitted / 1 overrun /
-      1 not started / 6 participants
+- [ ] Summary tiles read 2 active / 4 in progress / 2 submitted / 1 overrun /
+      1 not started / 7 participants
+- [ ] `stud7` reads **Active** with 2 / 4 although nothing was ever submitted --
+      this is the single-page-quiz case, and it only works when
+      *Site administration → Plugins → Activity modules → Quiz → Auto-save period*
+      is greater than 0
 - [ ] The table refreshes on its own at the configured interval, with no page
       reload and no console errors
 - [ ] *Pause auto-refresh* stops it; *Resume* restarts it and refreshes at once
@@ -181,14 +187,14 @@ bin/moodle-docker-compose exec webserver vendor/bin/phpunit \
   --testsuite quiz_livemonitor_testsuite
 ```
 
-44 tests, 174 assertions. After adding or moving a test file, re-register the
+58 tests, 235 assertions. After adding or moving a test file, re-register the
 suite or PHPUnit reports "No tests executed":
 
 ```bash
 bin/moodle-docker-compose exec webserver php admin/tool/phpunit/cli/util.php --buildconfig
 ```
 
-`tests/local/progress_provider_test.php` (26) covers the snapshot itself: every
+`tests/local/progress_provider_test.php` (35) covers the snapshot itself: every
 status, the answered-question counter (including a multi-response question and a
 blank submission), the summary counters, the latest-attempt and preview rules,
 sorting, the time-limit and close-date deadlines, that supervisors are not listed
@@ -237,8 +243,16 @@ bin/moodle-docker-compose exec webserver php admin/tool/phpunit/cli/init.php
 bin/moodle-docker-compose exec webserver vendor/bin/phpunit --testsuite quiz_livemonitor_testsuite
 ```
 
-On MariaDB 10.11 all 44 tests pass and the correlated subquery costs 1.7 ms for
-164 attempts, so the concern did not materialise. Re-run `init.php` after any
+On MariaDB 10.11 all 58 tests pass. The answered count used to be a correlated
+subquery; it is now a derived table that also carries the activity timestamp, and
+it costs the same: 1.6 ms against the old 1.7 ms for a 207-participant cohort.
+
+**Measure in a fresh request.** A script that has just written two hundred
+enrolments and then times the snapshot in the same process reports around two
+seconds -- an artefact of the writes it just did, not the cost of a page load. The
+same measurement from a fresh CLI request gives 20 ms. This is the second time
+this trap has produced an alarming number in this project; the first was PHPUnit's
+null cache store making get_enrolled_users() look like it took 54 seconds. Re-run `init.php` after any
 change to `version.php`, or PHPUnit refuses to start.
 
 ## 9. Checking PHP version portability

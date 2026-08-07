@@ -61,7 +61,7 @@ class get_progress extends external_api {
         require_capability('quiz/livemonitor:view', $context);
 
         $quiz = $DB->get_record('quiz', ['id' => $cm->instance], '*', MUST_EXIST);
-        $activewindow = (int) (get_config('quiz_livemonitor', 'activewindow') ?: 60);
+        $activewindow = \quiz_livemonitor\local\settings::active_window();
 
         return progress_provider::get_data($quiz, $cm, $context, $activewindow);
     }

@@ -35,11 +35,13 @@ if ($ADMIN->fulltree) {
     ));
 
     // How recent (seconds) server-side activity must be to count an attempt as "active".
+    // Must stay comfortably above the quiz module's autosave period, or the status flickers;
+    // quiz_livemonitor\local\settings::active_window() raises values that are too low.
     $settings->add(new admin_setting_configtext(
         'quiz_livemonitor/activewindow',
         get_string('setting_activewindow', 'quiz_livemonitor'),
         get_string('setting_activewindow_desc', 'quiz_livemonitor'),
-        60,
+        \quiz_livemonitor\local\settings::DEFAULT_ACTIVE_WINDOW,
         PARAM_INT
     ));
 }
